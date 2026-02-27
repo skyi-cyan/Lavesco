@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 헬퍼 함수: 관리자 권한 확인
+    function hasAdminClaim() {
+      return request.auth != null && 
+             request.auth.token.admin == true;
+    }
+    
+    // 헬퍼 함수: 참가자 확인
+    function isParticipant(roundId) {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/rounds/$(roundId)/participants/$(request.auth.uid));
+    }
+    
+    // 헬퍼 함수: HOST 확인
+    function isHost(roundId) {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/rounds/$(roundId)).data.hostUid == request.auth.uid;
+    }
+    
+    // 헬퍼 함수: 라운드 종료 여부 확인
+    function isFinished(roundId) {
+      return get(/databases/$(database)/documents/rounds/$(roundId)).data.status == 'FINISHED';
+    }
+    
+    // 골프장(CC) → 코스(황룡/청룡) → 홀 (이미지 구조)
+    match /golfCourses/{golfCourseId} {
+      allow read: if request.auth != null;
+      allow write: if hasAdminClaim();
+      match /courses/{courseId} {
+        allow read: if request.auth != null;
+        allow write: if hasAdminClaim();
+        match /holes/{holeNo} {
+          allow read: if request.auth != null;
+          allow write: if hasAdminClaim();
+        }
+      }
+    }
+    
+    // 기존 코스 컬렉션 (호환 유지)
+    match /courses/{courseId} {
+      // 모든 로그인 사용자 읽기 가능
+      allow read: if request.auth != null;
+      
+      // 관리자만 쓰기 가능
+      allow write: if hasAdminClaim();
+      
+      // 티셋 서브컬렉션
+      match /teesets/{teeId} {
+        allow read: if request.auth != null;
+        allow write: if hasAdminClaim();
+      }
+      
+      // 홀 서브컬렉션
+      match /holes/{holeNo} {
+        allow read: if request.auth != null;
+        allow write: if hasAdminClaim();
+      }
+    }
+    
+    // 라운드 컬렉션
+    match /rounds/{roundId} {
+      // 참가자만 읽기 가능
+      allow read: if isParticipant(roundId);
+      
+      // HOST만 업데이트 가능 (status, updatedAt만 변경 가능)
+      allow update: if isHost(roundId) && 
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'updatedAt']);
+      
+      // 생성은 인증된 사용자만 가능
+      allow create: if request.auth != null;
+      
+      // 삭제는 HOST만 가능
+      allow delete: if isHost(roundId);
+      
+      // 스코어 서브컬렉션
+      match /scores/{uid} {
+        // 참가자만 읽기 가능
+        allow read: if isParticipant(roundId);
+        
+        // 본인만 쓰기 가능, 라운드가 종료되지 않은 경우만
+        allow write: if request.auth.uid == uid && 
+                        !isFinished(roundId);
+      }
+      
+      // 참가자 서브컬렉션
+      match /participants/{uid} {
+        // 참가자만 읽기 가능
+        allow read: if isParticipant(roundId);
+        
+        // 본인 또는 HOST만 쓰기 가능
+        allow write: if request.auth.uid == uid || isHost(roundId);
+      }
+    }
+    
+    // 초대 코드 컬렉션
+    match /invites/{code} {
+      // 모든 로그인 사용자 읽기 가능
+      allow read: if request.auth != null;
+      
+      // 임시: 클라이언트에서 생성 가능 (Functions 배포 후 제한 필요)
+      // 인증된 사용자가 자신의 라운드에 대한 초대 코드만 생성 가능
+      allow create: if request.auth != null && 
+                       request.resource.data.createdBy == request.auth.uid;
+      
+      // useCount 업데이트는 참가 시에만 허용 (나중에 Functions로 이동)
+      allow update: if request.auth != null && 
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['useCount', 'updatedAt']);
+    }
+    
+    // 사용자 프로필 (선택적, 추후 구현)
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth.uid == uid;
+    }
+  }
+}

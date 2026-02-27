@@ -1,0 +1,11 @@
+# Compiled JavaScript files
+lib/
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
