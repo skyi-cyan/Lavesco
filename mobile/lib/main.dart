@@ -43,21 +43,11 @@ class LavescoApp extends ConsumerWidget {
       builder: (context, child) {
         if (!kIsWeb || child == null) return child ?? const SizedBox.shrink();
         return Container(
-          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          color: Theme.of(context).colorScheme.surface,
           child: Center(
             child: Container(
               constraints: const BoxConstraints(maxWidth: 480),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
+              color: Theme.of(context).colorScheme.surface,
               child: child,
             ),
           ),

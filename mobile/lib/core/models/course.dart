@@ -1,4 +1,4 @@
-/// 코스 모델 (Firestore courses/{courseId})
+/// 코스 모델 (Firestore courses/{courseId} 또는 golfCourses 하위)
 class Course {
   final String id;
   final String name;
@@ -7,6 +7,8 @@ class Course {
   final String status;
   final int version;
   final DateTime? updatedAt;
+  /// 거리 단위: METER | YARD (골프장에서 상속, admin-web과 동일)
+  final String? distanceUnit;
 
   const Course({
     required this.id,
@@ -16,6 +18,7 @@ class Course {
     this.status = 'ACTIVE',
     this.version = 1,
     this.updatedAt,
+    this.distanceUnit,
   });
 
   factory Course.fromMap(String id, Map<String, dynamic> map) {
@@ -29,8 +32,12 @@ class Course {
       updatedAt: map['updatedAt'] != null
           ? (map['updatedAt'] as dynamic).toDate() as DateTime
           : null,
+      distanceUnit: map['distanceUnit'] as String?,
     );
   }
+
+  String get distanceUnitLabel => distanceUnit == 'YARD' ? 'Yard (yd)' : 'Meter (m)';
+  String get distanceUnitShort => distanceUnit == 'YARD' ? 'yd' : 'm';
 
   Map<String, dynamic> toMap() {
     return {
@@ -40,6 +47,7 @@ class Course {
       'status': status,
       'version': version,
       'updatedAt': updatedAt,
+      if (distanceUnit != null) 'distanceUnit': distanceUnit,
     };
   }
 }

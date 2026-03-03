@@ -37,7 +37,7 @@ class InviteService {
     }
 
     // 고유 코드 생성 (중복 체크)
-    String code;
+    String code = _generateUniqueCode();
     bool isUnique = false;
     int attempts = 0;
     const maxAttempts = 10;

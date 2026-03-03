@@ -1,6 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+/// 스코어 집계 결과
+class ScoreAggregates {
+  final int totalOut;
+  final int totalIn;
+  final int total;
+  final int holesEntered;
+
+  ScoreAggregates({
+    required this.totalOut,
+    required this.totalIn,
+    required this.total,
+    required this.holesEntered,
+  });
+}
+
 /// 스코어 관리 및 집계 서비스
 /// 
 /// ⚠️ 임시 구현: Functions 없이 클라이언트에서 집계 처리
@@ -9,25 +24,10 @@ class ScoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  /// 스코어 집계 결과
-  class Aggregates {
-    final int totalOut;
-    final int totalIn;
-    final int total;
-    final int holesEntered;
-
-    Aggregates({
-      required this.totalOut,
-      required this.totalIn,
-      required this.total,
-      required this.holesEntered,
-    });
-  }
-
   /// 홀별 스코어 데이터에서 집계 계산
   /// 
   /// [holes] 홀별 스코어 맵 (키: 홀 번호 '1'~'18', 값: HoleData)
-  Aggregates calculateAggregates(Map<String, dynamic> holes) {
+  ScoreAggregates calculateAggregates(Map<String, dynamic> holes) {
     int totalOut = 0;
     int totalIn = 0;
     int total = 0;
@@ -49,7 +49,7 @@ class ScoreService {
       }
     });
 
-    return Aggregates(
+    return ScoreAggregates(
       totalOut: totalOut,
       totalIn: totalIn,
       total: total,

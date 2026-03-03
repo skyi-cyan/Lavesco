@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/models/course.dart';
+import '../../../../core/models/golf_course.dart';
 import '../../../../core/services/course_provider.dart';
 import '../../../../core/router/routes.dart';
 import '../../../../shared/widgets/loading_widget.dart';
 import '../../../../shared/widgets/error_widget.dart' as app;
 
-/// 코스 목록·검색 화면
-class CourseListPage extends ConsumerStatefulWidget {
-  const CourseListPage({super.key});
+/// 골프장 목록 화면 (코스보기 진입 시 첫 화면)
+class GolfCourseListPage extends ConsumerStatefulWidget {
+  const GolfCourseListPage({super.key});
 
   @override
-  ConsumerState<CourseListPage> createState() => _CourseListPageState();
+  ConsumerState<GolfCourseListPage> createState() => _GolfCourseListPageState();
 }
 
-class _CourseListPageState extends ConsumerState<CourseListPage> {
+class _GolfCourseListPageState extends ConsumerState<GolfCourseListPage> {
   String? _selectedRegion;
   String _nameQuery = '';
   final _searchController = TextEditingController();
@@ -38,12 +38,12 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
       region: _selectedRegion,
       nameQuery: _nameQuery.isEmpty ? null : _nameQuery,
     );
-    final coursesAsync = ref.watch(courseListProvider(params));
+    final golfCoursesAsync = ref.watch(golfCourseListProvider(params));
     final regionsAsync = ref.watch(regionsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('코스'),
+        title: const Text('골프장'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go(AppRoutes.home),
@@ -59,7 +59,7 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
                 TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: '코스명·지역 검색',
+                    hintText: '골프장명·지역 검색',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
@@ -130,9 +130,9 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
             ),
           ),
           Expanded(
-            child: coursesAsync.when(
-              data: (courses) {
-                if (courses.isEmpty) {
+            child: golfCoursesAsync.when(
+              data: (golfCourses) {
+                if (golfCourses.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -144,7 +144,7 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          '등록된 코스가 없습니다.',
+                          '등록된 골프장이 없습니다.',
                           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                                 color: Theme.of(context).colorScheme.onSurface,
                               ),
@@ -155,28 +155,28 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
                 }
                 return RefreshIndicator(
                   onRefresh: () async {
-                    ref.invalidate(courseListProvider(params));
+                    ref.invalidate(golfCourseListProvider(params));
                     ref.invalidate(regionsProvider);
                   },
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: courses.length,
+                    itemCount: golfCourses.length,
                     itemBuilder: (context, index) {
-                      final course = courses[index];
-                      return _CourseTile(
-                        course: course,
+                      final gc = golfCourses[index];
+                      return _GolfCourseTile(
+                        golfCourse: gc,
                         onTap: () => context.push(
-                          '${AppRoutes.course}/${course.id}',
+                          '${AppRoutes.course}/${gc.id}',
                         ),
                       );
                     },
                   ),
                 );
               },
-              loading: () => const LoadingWidget(message: '코스 목록 불러오는 중'),
+              loading: () => const LoadingWidget(message: '골프장 목록 불러오는 중'),
               error: (e, st) => app.AppErrorWidget(
                 message: e.toString().replaceAll('Exception: ', ''),
-                onRetry: () => ref.invalidate(courseListProvider(params)),
+                onRetry: () => ref.invalidate(golfCourseListProvider(params)),
               ),
             ),
           ),
@@ -186,11 +186,11 @@ class _CourseListPageState extends ConsumerState<CourseListPage> {
   }
 }
 
-class _CourseTile extends StatelessWidget {
-  final Course course;
+class _GolfCourseTile extends StatelessWidget {
+  final GolfCourse golfCourse;
   final VoidCallback onTap;
 
-  const _CourseTile({required this.course, required this.onTap});
+  const _GolfCourseTile({required this.golfCourse, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -203,11 +203,11 @@ class _CourseTile extends StatelessWidget {
           size: 28,
         ),
         title: Text(
-          course.name,
+          golfCourse.name,
           style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
         ),
         subtitle: Text(
-          '${course.region} · ${course.holesCount}홀',
+          golfCourse.region,
           style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
         ),
         trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),

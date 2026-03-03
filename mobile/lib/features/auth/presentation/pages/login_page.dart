@@ -122,18 +122,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 const SizedBox(height: 40),
                 // 로고
                 Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      Icons.golf_course,
-                      size: 40,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                  child: Icon(
+                    Icons.golf_course,
+                    size: 56,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -142,6 +134,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   '로그인',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                   textAlign: TextAlign.center,
                 ),
@@ -149,7 +142,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 Text(
                   '골프 라운드를 시작하세요',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                   textAlign: TextAlign.center,
                 ),
@@ -216,17 +209,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 // 구분선
                 Row(
                   children: [
-                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                    Expanded(child: Divider(color: Theme.of(context).colorScheme.outline)),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Text(
                         '또는',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context).colorScheme.onSurface,
                             ),
                       ),
                     ),
-                    Expanded(child: Divider(color: Colors.grey.shade300)),
+                    Expanded(child: Divider(color: Theme.of(context).colorScheme.outline)),
                   ],
                 ),
                 const SizedBox(height: 32),

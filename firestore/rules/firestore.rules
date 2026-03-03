@@ -14,10 +14,10 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/rounds/$(roundId)/participants/$(request.auth.uid));
     }
     
-    // 헬퍼 함수: HOST 확인
+    // 헬퍼 함수: HOST(생성자) 확인 (createdBy 사용)
     function isHost(roundId) {
       return request.auth != null && 
-             get(/databases/$(database)/documents/rounds/$(roundId)).data.hostUid == request.auth.uid;
+             get(/databases/$(database)/documents/rounds/$(roundId)).data.createdBy == request.auth.uid;
     }
     
     // 헬퍼 함수: 라운드 종료 여부 확인
@@ -62,13 +62,11 @@ service cloud.firestore {
     
     // 라운드 컬렉션
     match /rounds/{roundId} {
-      // 참가자만 읽기 가능
-      allow read: if isParticipant(roundId);
+      // 인증 사용자 읽기 (초대 코드 검증·라운드 목록/상세용, roundId는 예측 불가)
+      allow read: if request.auth != null;
       
-      // HOST만 업데이트 가능 (status, updatedAt만 변경 가능)
-      allow update: if isHost(roundId) && 
-                       request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['status', 'updatedAt']);
+      // 생성자(HOST)만 업데이트 가능 (status, updatedAt 등)
+      allow update: if isHost(roundId);
       
       // 생성은 인증된 사용자만 가능
       allow create: if request.auth != null;
@@ -78,9 +76,7 @@ service cloud.firestore {
       
       // 스코어 서브컬렉션
       match /scores/{uid} {
-        // 참가자만 읽기 가능
-        allow read: if isParticipant(roundId);
-        
+        allow read: if request.auth != null;
         // 본인만 쓰기 가능, 라운드가 종료되지 않은 경우만
         allow write: if request.auth.uid == uid && 
                         !isFinished(roundId);
@@ -88,10 +84,8 @@ service cloud.firestore {
       
       // 참가자 서브컬렉션
       match /participants/{uid} {
-        // 참가자만 읽기 가능
-        allow read: if isParticipant(roundId);
-        
-        // 본인 또는 HOST만 쓰기 가능
+        allow read: if request.auth != null;
+        // 본인 추가 또는 HOST
         allow write: if request.auth.uid == uid || isHost(roundId);
       }
     }
@@ -112,10 +106,14 @@ service cloud.firestore {
                          .hasOnly(['useCount', 'updatedAt']);
     }
     
-    // 사용자 프로필 (선택적, 추후 구현)
+    // 사용자 프로필
     match /users/{uid} {
       allow read: if request.auth != null;
       allow write: if request.auth.uid == uid;
+      // 내 라운드 ID 목록 (라운드 생성/참가 시 기록)
+      match /roundIds/{roundId} {
+        allow read, write: if request.auth.uid == uid;
+      }
     }
   }
 }

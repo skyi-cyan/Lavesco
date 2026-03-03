@@ -20,12 +20,15 @@ class TermsPage extends StatelessWidget {
               '서비스 이용약관',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
             ),
             const SizedBox(height: 16),
             Text(
               _serviceTermsText,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
             ),
             const SizedBox(height: 32),
             // 개인정보 처리방침
@@ -33,12 +36,15 @@ class TermsPage extends StatelessWidget {
               '개인정보 처리방침',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
             ),
             const SizedBox(height: 16),
             Text(
               _privacyPolicyText,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
             ),
           ],
         ),

@@ -30,6 +30,7 @@ class TermsCheckbox extends StatelessWidget {
           '약관 동의',
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
               ),
         ),
         const SizedBox(height: 12),
@@ -39,7 +40,10 @@ class TermsCheckbox extends StatelessWidget {
           onChanged: (value) => onServiceTermsChanged(value ?? false),
           title: Row(
             children: [
-              const Text('서비스 이용약관'),
+              Text(
+                '서비스 이용약관',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+              ),
               Text(
                 ' (필수)',
                 style: TextStyle(
@@ -58,7 +62,10 @@ class TermsCheckbox extends StatelessWidget {
           onChanged: (value) => onPrivacyPolicyChanged(value ?? false),
           title: Row(
             children: [
-              const Text('개인정보 처리방침'),
+              Text(
+                '개인정보 처리방침',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+              ),
               Text(
                 ' (필수)',
                 style: TextStyle(
@@ -75,8 +82,14 @@ class TermsCheckbox extends StatelessWidget {
         CheckboxListTile(
           value: marketing,
           onChanged: (value) => onMarketingChanged(value ?? false),
-          title: const Text('마케팅 수신 동의'),
-          subtitle: const Text('(선택)'),
+          title: Text(
+            '마케팅 수신 동의',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+          ),
+          subtitle: Text(
+            '(선택)',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)),
+          ),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
           dense: true,
