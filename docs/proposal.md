@@ -3,7 +3,7 @@
 ## 📋 PRD 분석 요약
 
 ### 핵심 요구사항
-- **플랫폼**: iOS/Android (Flutter) + 관리자 웹 (React/Next.js)
+- **플랫폼**: iOS/Android (React Native) + 관리자 웹 (React/Next.js)
 - **백엔드**: Firebase (Auth, Firestore, Functions, FCM, Storage)
 - **타겟 사용자**: 아마추어 골퍼 (동반 플레이어)
 - **핵심 기능**: 실시간 스코어 공유, 오프라인 지원, 초대 코드 시스템
@@ -22,7 +22,7 @@
 
 ```
 Lavesco/
-├── mobile/                    # Flutter 앱
+├── mobile-rn/                 # React Native 모바일 앱
 │   ├── lib/
 │   │   ├── core/             # 핵심 기능
 │   │   │   ├── auth/

@@ -44,10 +44,8 @@ Firebase 프로젝트 설정 시 올바른 순서를 안내합니다.
    - `GoogleService-Info.plist` (iOS)
    - 환경 변수 (Web)
 
-8. **FlutterFire 설정**
-   ```bash
-   flutterfire configure
-   ```
+8. **모바일 앱 Firebase 설정 (React Native)**  
+   Firebase Console에서 Android/iOS 앱 등록 후 `google-services.json`, `GoogleService-Info.plist`를 `mobile-rn`에 추가. 자세한 방법은 [mobile-rn/README.md](../mobile-rn/README.md) 참고.
 
 ## 🎯 답변: 앱을 먼저 설치해야 하나요?
 
@@ -64,7 +62,7 @@ Firebase 프로젝트 설정 시 올바른 순서를 안내합니다.
 
 1. **Firestore 규칙 배포**: 앱 등록 없이 가능 ✅
 2. **Functions 배포**: 앱 등록 없이 가능 ✅
-3. **Flutter 앱에서 Firebase 사용**: 앱 등록 필요 ⚠️
+3. **모바일 앱(React Native)에서 Firebase 사용**: 앱 등록 필요 ⚠️
 4. **관리자 웹에서 Firebase 사용**: 앱 등록 필요 ⚠️
 
 ## 📝 권장 설정 순서
@@ -94,7 +92,7 @@ Firebase 프로젝트 설정 시 올바른 순서를 안내합니다.
    ↓
 9. Web 앱 등록
    ↓
-10. FlutterFire 설정
+10. 모바일 앱 Firebase 설정 파일 추가
     ↓
 11. 앱 개발 시작
 ```
@@ -132,7 +130,7 @@ Firebase 프로젝트 설정 시 올바른 순서를 안내합니다.
 
 - 앱 등록 (Android, iOS, Web)
 - Firebase 설정 파일 추가
-- FlutterFire 설정
+- 모바일 앱(mobile-rn) Firebase 설정
 
 ## 💡 실용적인 접근
 
@@ -156,7 +154,7 @@ firebase deploy --only firestore
 ### 옵션 2: 앱 등록 후 설정
 
 앱을 먼저 등록하고 설정 파일을 받은 후:
-- FlutterFire 설정을 한 번에 할 수 있습니다
+- 모바일 앱(mobile-rn) Firebase 설정을 한 번에 할 수 있습니다
 - 설정 파일이 바로 준비됩니다
 
 ## 🎯 결론

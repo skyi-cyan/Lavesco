@@ -22,30 +22,23 @@
 }
 ```
 
-### 3. Flutter 앱 설정
+### 3. 모바일 앱 (React Native) 설정
 
 #### Android 설정
 
 1. Firebase Console > 프로젝트 설정 > Android 앱 추가
-2. 패키지 이름 입력 (예: `com.lavesco.app`)
+2. 패키지 이름 입력: `com.lavesco.app`
 3. `google-services.json` 다운로드
-4. `mobile/android/app/` 디렉토리에 복사
+4. `mobile-rn/android/app/` 디렉토리에 복사
 
 #### iOS 설정
 
 1. Firebase Console > 프로젝트 설정 > iOS 앱 추가
 2. 번들 ID 입력 (예: `com.lavesco.app`)
 3. `GoogleService-Info.plist` 다운로드
-4. `mobile/ios/Runner/` 디렉토리에 복사
+4. Xcode에서 `mobile-rn/ios/` 프로젝트의 앱 타겟에 `GoogleService-Info.plist` 추가
 
-#### Firebase 옵션 생성
-
-```bash
-cd mobile
-flutter pub add firebase_core
-dart pub global activate flutterfire_cli
-flutterfire configure
-```
+자세한 모바일 앱 설정 및 실행 방법은 [mobile-rn/README.md](./mobile-rn/README.md)를 참고하세요.
 
 ### 4. 관리자 웹 설정
 
@@ -108,16 +101,16 @@ export const setAdmin = functions.https.onCall(async (data, context) => {
 
 설정이 완료되면 다음을 진행하세요:
 
-1. Flutter 앱 실행 테스트
+1. 모바일 앱 (React Native) 실행 테스트
 2. 관리자 웹 실행 테스트
 3. Firebase Functions 배포 테스트
 4. Firestore 보안 규칙 테스트
 
 ## 문제 해결
 
-### Flutter Firebase 설정 오류
-- `firebase_options.dart` 파일이 생성되었는지 확인
-- `google-services.json` 및 `GoogleService-Info.plist` 파일 위치 확인
+### 모바일 앱 (RN) Firebase 설정 오류
+- `google-services.json` (Android) 및 `GoogleService-Info.plist` (iOS) 파일 위치 확인
+- [mobile-rn/README.md](./mobile-rn/README.md)의 트러블슈팅 섹션 참고
 
 ### 관리자 웹 환경 변수 오류
 - `.env.local` 파일이 `admin-web/` 디렉토리에 있는지 확인

@@ -17,29 +17,29 @@
 
 ```
 Lavesco/
-├── mobile/              # Flutter 모바일 앱
-├── admin-web/           # Next.js 관리자 웹
-├── functions/           # Firebase Cloud Functions
-├── firestore/           # Firestore 보안 규칙 및 인덱스
-└── docs/                # 문서
+├── mobile-rn/          # React Native 모바일 앱
+├── admin-web/          # Next.js 관리자 웹
+├── functions/          # Firebase Cloud Functions
+├── firestore/          # Firestore 보안 규칙 및 인덱스
+└── docs/               # 문서
 ```
 
 ## 시작하기
 
 ### 필수 요구사항
 
-- **Flutter**: 3.0.0 이상
 - **Node.js**: 18.0.0 이상
+- **React Native**: 개발 환경 설정 ([mobile-rn/README.md](./mobile-rn/README.md) 참고)
 - **Firebase CLI**: 최신 버전
 - **Firebase 프로젝트**: 생성 및 설정 완료
 
 ### 설치
 
-#### 1. Flutter 앱
+#### 1. 모바일 앱 (React Native)
 
 ```bash
-cd mobile
-flutter pub get
+cd mobile-rn
+npm install
 ```
 
 #### 2. 관리자 웹
@@ -61,18 +61,22 @@ npm install
 1. Firebase 프로젝트 생성
 2. `.firebaserc` 파일에서 프로젝트 ID 설정
 3. 각 프로젝트에 Firebase 설정 파일 추가:
-   - `mobile/`: `google-services.json` (Android), `GoogleService-Info.plist` (iOS)
+   - `mobile-rn/`: `google-services.json` (Android), `GoogleService-Info.plist` (iOS) — [mobile-rn/README.md](./mobile-rn/README.md) 참고
    - `admin-web/`: `.env.local` 파일 생성
    - `functions/`: Firebase Admin SDK 자동 초기화
 
 ### 실행
 
-#### Flutter 앱 (개발)
+#### 모바일 앱 (React Native, 개발)
 
 ```bash
-cd mobile
-flutter run
+cd mobile-rn
+npm start
+# 별도 터미널에서
+npm run android   # 또는 npm run ios
 ```
+
+자세한 실행 방법은 [mobile-rn/README.md](./mobile-rn/README.md)를 참고하세요.
 
 #### 관리자 웹 (개발)
 
@@ -139,13 +143,13 @@ firebase deploy --only hosting
 - [개발 제안서](./docs/proposal.md)
 - [개발 환경 설치 가이드](./docs/INSTALLATION_GUIDE.md) ⭐
 - [Firebase 설정 가이드](./docs/FIREBASE_SETUP_GUIDE.md) ⭐
+- [모바일 앱 (RN) 설정 및 실행](./mobile-rn/README.md) ⭐
 
 ## 기술 스택
 
 ### Mobile
-- **Flutter**: 크로스 플랫폼 모바일 프레임워크
-- **Riverpod**: 상태 관리
-- **Firebase**: 백엔드 서비스
+- **React Native**: 크로스 플랫폼 모바일 프레임워크
+- **Firebase**: Auth, Firestore, FCM 등 백엔드 서비스
 
 ### Admin Web
 - **Next.js 14**: React 프레임워크

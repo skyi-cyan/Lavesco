@@ -7,7 +7,7 @@ v1.1  |  보완 검토본
 | 항목 | 내용 |
 | :---- | :---- |
 | 문서 버전 | v1.1 (원본 v1.0 기반 보완) |
-| 플랫폼 | iOS / Android (Flutter) \+ 관리자 웹 (React/Next.js) |
+| 플랫폼 | iOS / Android (React Native) + 관리자 웹 (React/Next.js) |
 | 백엔드 | Firebase (Auth / Firestore / Functions / FCM / Storage) |
 | 주요 사용자 | 아마추어 골퍼 — 라운드를 함께 즐기는 동반 플레이어 |
 | 핵심 가치 | 쉬운 스코어 입력 · 실시간 공유 · 코스 데이터 정확성 |

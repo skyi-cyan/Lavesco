@@ -21,12 +21,9 @@
 }
 ```
 
-### 3. Flutter 앱 설정 (1분)
+### 3. 모바일 앱 (React Native) 설정 (1분)
 
-```bash
-cd mobile
-flutterfire configure
-```
+Firebase Console에서 Android/iOS 앱 등록 후, `google-services.json`(Android)과 `GoogleService-Info.plist`(iOS)를 `mobile-rn`에 추가합니다. 자세한 방법은 [mobile-rn/README.md](../mobile-rn/README.md)를 참고하세요.
 
 ### 4. 관리자 웹 설정 (1분)
 
@@ -51,7 +48,7 @@ NEXT_PUBLIC_FIREBASE_APP_ID=...
 
 - [ ] Firebase 프로젝트 생성
 - [ ] `.firebaserc` 파일 설정
-- [ ] Flutter 앱 Firebase 설정
+- [ ] 모바일 앱 (RN) Firebase 설정
 - [ ] 관리자 웹 환경 변수 설정
 - [ ] Firestore 규칙 배포
 

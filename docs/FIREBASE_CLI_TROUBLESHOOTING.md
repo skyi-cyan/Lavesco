@@ -203,7 +203,7 @@ Firebase CLI 설정이 완료되면:
 1. ✅ Firestore 보안 규칙 배포
 2. ✅ Firestore 인덱스 배포
 3. ✅ Firebase Functions 배포
-4. ✅ Flutter 앱 Firebase 설정
+4. ✅ 모바일 앱 (React Native) Firebase 설정 — [mobile-rn/README.md](../mobile-rn/README.md)
 
 ## 참고 자료
 
