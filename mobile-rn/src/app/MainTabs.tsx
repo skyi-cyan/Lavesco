@@ -2,9 +2,9 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { HomeScreen } from '../features/home/HomeScreen';
-import { RoundListScreen } from '../features/round/RoundListScreen';
+import { RoundStack } from './RoundStack';
 import { CourseStack } from './CourseStack';
-import { ProfileScreen } from '../features/profile/ProfileScreen';
+import { ProfileStack } from './ProfileStack';
 
 export type MainTabParamList = {
   Home: undefined;
@@ -44,8 +44,8 @@ export function MainTabs(): React.JSX.Element {
       />
       <Tab.Screen
         name="Round"
-        component={RoundListScreen}
-        options={{ title: '라운드', tabBarLabel: '라운드' }}
+        component={RoundStack}
+        options={{ title: '라운드', tabBarLabel: '라운드', headerShown: false }}
       />
       <Tab.Screen
         name="Course"
@@ -54,8 +54,8 @@ export function MainTabs(): React.JSX.Element {
       />
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
-        options={{ title: '프로필', tabBarLabel: '프로필' }}
+        component={ProfileStack}
+        options={{ title: '프로필', tabBarLabel: '프로필', headerShown: false }}
       />
     </Tab.Navigator>
   );

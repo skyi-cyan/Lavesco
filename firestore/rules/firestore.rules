@@ -109,10 +109,10 @@ service cloud.firestore {
     // 사용자 프로필
     match /users/{uid} {
       allow read: if request.auth != null;
-      allow write: if request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid;
       // 내 라운드 ID 목록 (라운드 생성/참가 시 기록)
       match /roundIds/{roundId} {
-        allow read, write: if request.auth.uid == uid;
+        allow read, write: if request.auth != null && request.auth.uid == uid;
       }
     }
   }

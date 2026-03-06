@@ -23,6 +23,7 @@ type AuthContextValue = AuthState & {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
   clearError: () => void;
 };
 
@@ -106,6 +107,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
 
   const clearError = useCallback(() => setError(null), []);
 
+  const refreshProfile = useCallback(async () => {
+    if (user?.uid) await loadProfile(user.uid);
+  }, [user?.uid, loadProfile]);
+
   const value: AuthContextValue = {
     user,
     profile,
@@ -116,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     signInWithGoogle,
     signInWithApple,
     signOut,
+    refreshProfile,
     clearError,
   };
 
