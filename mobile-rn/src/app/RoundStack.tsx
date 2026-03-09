@@ -2,11 +2,13 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RoundListScreen } from '../features/round/RoundListScreen';
 import { RoundCreateScreen } from '../features/round/RoundCreateScreen';
+import { RoundJoinScreen } from '../features/round/RoundJoinScreen';
 import { RoundDetailScreen } from '../features/round/RoundDetailScreen';
 
 export type RoundStackParamList = {
   RoundList: undefined;
   RoundCreate: undefined;
+  RoundJoin: undefined;
   RoundDetail: { roundId: string };
 };
 
@@ -27,6 +29,11 @@ export function RoundStack(): React.JSX.Element {
         name="RoundCreate"
         component={RoundCreateScreen}
         options={{ title: '라운드 만들기' }}
+      />
+      <Stack.Screen
+        name="RoundJoin"
+        component={RoundJoinScreen}
+        options={{ title: '라운드 참여하기' }}
       />
       <Stack.Screen
         name="RoundDetail"

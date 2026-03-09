@@ -84,6 +84,10 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
     navigation.navigate('RoundCreate');
   };
 
+  const handleJoin = () => {
+    navigation.navigate('RoundJoin');
+  };
+
   if (!user) {
     return (
       <View style={styles.centered}>
@@ -116,7 +120,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           <View style={styles.empty}>
             <Ionicons name="flag-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>참여 중인 라운드가 없습니다.</Text>
-            <Text style={styles.emptySub}>라운드 만들기를 눌러 시작하세요.</Text>
+            <Text style={styles.emptySub}>라운드 만들기 또는 참여하기를 눌러 시작하세요.</Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -149,14 +153,24 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           </TouchableOpacity>
         )}
       />
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={handleCreate}
-        activeOpacity={0.9}
-      >
-        <Ionicons name="add" size={28} color="#fff" />
-        <Text style={styles.fabLabel}>라운드 만들기</Text>
-      </TouchableOpacity>
+      <View style={styles.fabRow}>
+        <TouchableOpacity
+          style={[styles.fab, styles.fabJoin]}
+          onPress={handleJoin}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="person-add" size={22} color="#fff" />
+          <Text style={styles.fabLabel}>참여하기</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={handleCreate}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+          <Text style={styles.fabLabel}>라운드 만들기</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -205,11 +219,16 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontSize: 12, fontWeight: '600', color: '#333' },
   cardDate: { fontSize: 13, color: '#666' },
-  fab: {
+  fabRow: {
     position: 'absolute',
     bottom: 24,
     left: 16,
     right: 16,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  fab: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -217,6 +236,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     gap: 8,
+  },
+  fabJoin: {
+    backgroundColor: '#1565c0',
   },
   fabLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

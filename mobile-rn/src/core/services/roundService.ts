@@ -1,3 +1,33 @@
+/**
+ * 라운드 스코어 저장 로직 정리
+ * ---------------------------------
+ *
+ * [ Firestore 구조 ]
+ * - rounds/{roundId}                    : 라운드 메타(골프장, 코스, 티타임, status 등)
+ * - rounds/{roundId}/participants/{uid}  : 참가자 정보(닉네임, role, holesEntered, totalOut, totalIn, total)
+ * - rounds/{roundId}/scores/{uid}       : 해당 유저의 홀별 스코어 { holes: { "1": {...}, "2": {...}, ... }, updatedAt }
+ * - users/{uid}/roundIds/{roundId}      : 사용자가 참여 중인 라운드 ID 등록
+ *
+ * [ 라운드 생성 시 (createRound) ]
+ * 1. rounds 문서 생성 (status: DRAFT)
+ * 2. participants/{uid} 에 HOST 참가자 추가 (holesEntered/totalOut/totalIn/total = 0)
+ * 3. users/{uid}/roundIds/{roundId} 등록
+ *
+ * [ 스코어 등록·저장 흐름 ]
+ * 1. RoundDetailScreen 에서 사용자가 홀별 스코어(타수, 퍼트, 페어웨이 등) 입력
+ * 2. 상태: scoresByUid[user.uid][holeNo] 로 로컬 업데이트 (updateMyHole)
+ * 3. 저장 트리거: scoresByUid 변경 시 1초 디바운스 후 saveMyScore() 호출
+ * 4. saveRoundScore(roundId, uid, holes) 호출
+ *    - rounds/{roundId}/scores/{uid} 에 { holes: { "1": { strokes, putts, fairway?, ... }, ... }, updatedAt } 를 set(merge: true)
+ * 5. 참가자 문서(participants)의 totalOut/totalIn/total/holesEntered 는 스코어 확정 시 갱신됨.
+ *    - 화면의 Out/In/Total 합계는 RoundDetailScreen 에서 scoresByUid 기반으로 클라이언트 계산하여 표시
+ *
+ * [ 스코어 확정 (confirmRoundScore) ]
+ * 1. 사용자가 "스코어 확정" 버튼 탭
+ * 2. 현재 홀별 스코어를 scores/{uid} 에 저장 (merge)
+ * 3. 전반(1~9홀)/후반(10~18홀) 합계 계산 후 participants/{uid} 에 totalOut, totalIn, total, holesEntered(18), scoreConfirmedAt 갱신
+ * 4. 라운드가 DRAFT 이면 status 를 IN_PROGRESS 로 변경
+ */
 import firestore from '@react-native-firebase/firestore';
 import type { Round, RoundStatus, RoundParticipant, HoleScoreData } from '../types/round';
 
@@ -56,6 +86,72 @@ export async function fetchRound(roundId: string): Promise<Round | null> {
   const doc = await firestore().collection(ROUNDS_COLLECTION).doc(roundId).get();
   if (!doc.exists || !doc.data()) return null;
   return roundFromDoc(doc.id, doc.data() as Record<string, unknown>);
+}
+
+/**
+ * 라운드 번호(4자리)로 라운드 조회. 동일 번호 중복 시 첫 번째 결과 반환.
+ */
+export async function fetchRoundByRoundNumber(roundNumber: string): Promise<Round | null> {
+  const trimmed = String(roundNumber).trim();
+  if (trimmed.length !== 4) return null;
+  const snapshot = await firestore()
+    .collection(ROUNDS_COLLECTION)
+    .where('roundNumber', '==', trimmed)
+    .limit(1)
+    .get();
+  if (snapshot.empty || !snapshot.docs[0]?.data()) return null;
+  const doc = snapshot.docs[0];
+  return roundFromDoc(doc.id, doc.data() as Record<string, unknown>);
+}
+
+/**
+ * 라운드 참여: participants에 MEMBER 추가, users/{uid}/roundIds 등록. 이미 참여 중이면 무시.
+ */
+export async function joinRound(
+  roundId: string,
+  uid: string,
+  nickname: string | null
+): Promise<void> {
+  const db = firestore();
+  const roundRef = db.collection(ROUNDS_COLLECTION).doc(roundId);
+  const roundSnap = await roundRef.get();
+  if (!roundSnap.exists || !roundSnap.data()) {
+    throw new Error('라운드를 찾을 수 없습니다.');
+  }
+
+  const participantRef = roundRef.collection(PARTICIPANTS).doc(uid);
+  const participantSnap = await participantRef.get();
+  const now = new Date();
+
+  if (participantSnap.exists) {
+    await db
+      .collection(USERS_COLLECTION)
+      .doc(uid)
+      .collection(ROUND_IDS)
+      .doc(roundId)
+      .set({ roundId }, { merge: true });
+    return;
+  }
+
+  const participantData = {
+    uid,
+    nickname: nickname ?? null,
+    role: 'MEMBER',
+    joinStatus: 'JOINED',
+    holesEntered: 0,
+    totalOut: 0,
+    totalIn: 0,
+    total: 0,
+    updatedAt: firestore.Timestamp.fromDate(now),
+  };
+  await participantRef.set(participantData);
+
+  await db
+    .collection(USERS_COLLECTION)
+    .doc(uid)
+    .collection(ROUND_IDS)
+    .doc(roundId)
+    .set({ roundId });
 }
 
 /**
@@ -169,6 +265,7 @@ function participantFromDoc(id: string, data: Record<string, unknown>): RoundPar
     totalIn: (data.totalIn as number) ?? 0,
     total: (data.total as number) ?? 0,
     updatedAt: toDate(data.updatedAt),
+    scoreConfirmedAt: data.scoreConfirmedAt ? toDate(data.scoreConfirmedAt) : null,
   };
 }
 
@@ -248,4 +345,51 @@ export async function saveRoundScore(
       { holes: payload, updatedAt: firestore.Timestamp.now() },
       { merge: true }
     );
+}
+
+const HOLE_NOS_FRONT = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+const HOLE_NOS_BACK = ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
+
+function computeTotals(holes: Record<string, HoleScoreData>): { totalOut: number; totalIn: number; total: number } {
+  const totalOut = HOLE_NOS_FRONT.reduce((sum, no) => sum + (holes[no]?.strokes ?? 0), 0);
+  const totalIn = HOLE_NOS_BACK.reduce((sum, no) => sum + (holes[no]?.strokes ?? 0), 0);
+  return { totalOut, totalIn, total: totalOut + totalIn };
+}
+
+/**
+ * 스코어 확정: 최종 스코어 저장 후 참가자 합계·확정 시각 갱신, 라운드가 DRAFT면 IN_PROGRESS로 변경
+ */
+export async function confirmRoundScore(
+  roundId: string,
+  uid: string,
+  holes: Record<string, HoleScoreData>
+): Promise<void> {
+  const db = firestore();
+  const now = firestore.Timestamp.now();
+  const { totalOut, totalIn, total } = computeTotals(holes);
+
+  await saveRoundScore(roundId, uid, holes);
+
+  const participantRef = db.collection(ROUNDS_COLLECTION).doc(roundId).collection(PARTICIPANTS).doc(uid);
+  await participantRef.set(
+    {
+      holesEntered: 18,
+      totalOut,
+      totalIn,
+      total,
+      scoreConfirmedAt: now,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  const roundRef = db.collection(ROUNDS_COLLECTION).doc(roundId);
+  const roundSnap = await roundRef.get();
+  const status = roundSnap.data()?.status as RoundStatus | undefined;
+  if (status === 'DRAFT') {
+    await roundRef.update({
+      status: 'IN_PROGRESS',
+      updatedAt: now,
+    });
+  }
 }

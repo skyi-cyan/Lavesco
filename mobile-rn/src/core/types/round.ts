@@ -37,6 +37,8 @@ export interface RoundParticipant {
   totalIn: number;
   total: number;
   updatedAt: Date;
+  /** 스코어 확정 시각. 있으면 확정 완료 상태 */
+  scoreConfirmedAt: Date | null;
 }
 
 /** 홀별 스코어 (rounds/{roundId}/scores/{uid} holes.{n}) */
