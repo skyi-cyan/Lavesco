@@ -6,7 +6,7 @@ const PROFILE_PHOTO_PATH = 'profile.jpg';
 
 export type ProfileUpdateInput = {
   nickname?: string | null;
-  handicap?: number;
+  handicap?: number | null;
   defaultTee?: string | null;
   photoURL?: string | null;
   address?: string | null;
@@ -22,12 +22,12 @@ export async function updateUserProfile(
   input: ProfileUpdateInput
 ): Promise<void> {
   const data: Record<string, unknown> = {};
-  if (input.nickname !== undefined) data.nickname = input.nickname;
-  if (input.handicap !== undefined) data.handicap = input.handicap;
-  if (input.defaultTee !== undefined) data.defaultTee = input.defaultTee;
-  if (input.photoURL !== undefined) data.photoURL = input.photoURL;
-  if (input.address !== undefined) data.address = input.address;
-  if (input.dateOfBirth !== undefined) data.dateOfBirth = input.dateOfBirth;
+  if (input.nickname !== undefined) data.nickname = input.nickname ?? null;
+  if (input.handicap !== undefined) data.handicap = input.handicap ?? null;
+  if (input.defaultTee !== undefined) data.defaultTee = input.defaultTee ?? null;
+  if (input.photoURL !== undefined) data.photoURL = input.photoURL ?? null;
+  if (input.address !== undefined) data.address = input.address ?? null;
+  if (input.dateOfBirth !== undefined) data.dateOfBirth = input.dateOfBirth ?? null;
 
   if (Object.keys(data).length === 0) return;
 

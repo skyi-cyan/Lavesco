@@ -29,7 +29,7 @@ type ViewNine = 'front' | 'back';
 
 type Props = NativeStackScreenProps<RoundStackParamList, 'RoundDetail'>;
 
-export function RoundDetailScreen({ route }: Props): React.JSX.Element {
+export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { roundId } = route.params;
   const { user } = useAuth();
   const [round, setRound] = useState<Round | null>(null);
@@ -46,6 +46,8 @@ export function RoundDetailScreen({ route }: Props): React.JSX.Element {
   const [savingHole, setSavingHole] = useState(false);
   /** 12시간 경과 후 자동 확정은 한 번만 수행하기 위한 ref */
   const autoConfirmedRoundIdRef = useRef<string | null>(null);
+  /** 참가 직후 참가자 목록에 본인이 아직 안 보일 때 재로드 한 번만 시도 */
+  const loadRetriedRef = useRef(false);
 
   const holeNumbers = viewNine === 'front' ? HOLE_NUMBERS_FRONT : HOLE_NUMBERS_BACK;
   const currentHoleNo = holeNumbers[currentHoleIndex];
@@ -87,41 +89,64 @@ export function RoundDetailScreen({ route }: Props): React.JSX.Element {
       setRound(roundData ?? null);
       setParticipants(participantsList);
 
+      const scoreMap: Record<string, Record<string, HoleScoreData>> = {};
+      const uidsToFetch = participantsList.map((p) => p.uid);
+      await Promise.all(
+        uidsToFetch.map(async (uid) => {
+          try {
+            const holes = await fetchRoundScore(roundId, uid);
+            scoreMap[uid] = holes ?? {};
+          } catch {
+            scoreMap[uid] = {};
+          }
+        })
+      );
+      setScoresByUid(scoreMap);
+
+      if (
+        user?.uid &&
+        roundData &&
+        !participantsList.some((p) => p.uid === user.uid) &&
+        !loadRetriedRef.current
+      ) {
+        loadRetriedRef.current = true;
+        setTimeout(() => load(), 500);
+      }
+
       if (roundData?.golfCourseId && roundData?.frontCourseId) {
-        const frontMap = await fetchHolesUnderCourse(
-          roundData.golfCourseId,
-          roundData.frontCourseId
-        );
-        const frontObj: Record<string, GolfCourseHoleInput> = {};
-        frontMap.forEach((v, k) => {
-          frontObj[k] = v;
-        });
-        setFrontHoleInfo(frontObj);
+        try {
+          const frontMap = await fetchHolesUnderCourse(
+            roundData.golfCourseId,
+            roundData.frontCourseId
+          );
+          const frontObj: Record<string, GolfCourseHoleInput> = {};
+          frontMap.forEach((v, k) => {
+            frontObj[k] = v;
+          });
+          setFrontHoleInfo(frontObj);
+        } catch {
+          setFrontHoleInfo({});
+        }
       } else {
         setFrontHoleInfo({});
       }
       if (roundData?.golfCourseId && roundData?.backCourseId) {
-        const backMap = await fetchHolesUnderCourse(
-          roundData.golfCourseId,
-          roundData.backCourseId
-        );
-        const backObj: Record<string, GolfCourseHoleInput> = {};
-        backMap.forEach((v, k) => {
-          backObj[k] = v;
-        });
-        setBackHoleInfo(backObj);
+        try {
+          const backMap = await fetchHolesUnderCourse(
+            roundData.golfCourseId,
+            roundData.backCourseId
+          );
+          const backObj: Record<string, GolfCourseHoleInput> = {};
+          backMap.forEach((v, k) => {
+            backObj[k] = v;
+          });
+          setBackHoleInfo(backObj);
+        } catch {
+          setBackHoleInfo({});
+        }
       } else {
         setBackHoleInfo({});
       }
-
-      const scoreMap: Record<string, Record<string, HoleScoreData>> = {};
-      await Promise.all(
-        participantsList.map(async (p) => {
-          const holes = await fetchRoundScore(roundId, p.uid);
-          scoreMap[p.uid] = holes;
-        })
-      );
-      setScoresByUid(scoreMap);
     } catch {
       setRound(null);
       setParticipants([]);
@@ -129,11 +154,18 @@ export function RoundDetailScreen({ route }: Props): React.JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [roundId]);
+  }, [roundId, user?.uid]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      load();
+    });
+    return unsubscribe;
+  }, [navigation, load]);
 
   /** 현재 홀 draft만 수정 (저장 버튼을 눌러야 반영됨) */
   const updateDraft = useCallback((updater: (prev: HoleScoreData) => HoleScoreData) => {

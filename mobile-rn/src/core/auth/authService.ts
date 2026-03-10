@@ -163,6 +163,10 @@ async function createUserProfile(
     nickname: options.nickname ?? null,
     photoURL: user.photoURL ?? null,
     provider: options.provider,
+    handicap: null,
+    defaultTee: null,
+    address: null,
+    dateOfBirth: null,
     termsAgreement: options.terms
       ? {
           serviceTerms: options.terms.serviceTerms,

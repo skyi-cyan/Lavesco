@@ -105,7 +105,8 @@ export async function fetchRoundByRoundNumber(roundNumber: string): Promise<Roun
 }
 
 /**
- * 라운드 참여: participants에 MEMBER 추가, users/{uid}/roundIds 등록. 이미 참여 중이면 무시.
+ * 라운드 참여: participants에 MEMBER 추가, users/{uid}/roundIds 등록.
+ * 참여 시 항상 참가자 문서를 생성/갱신한 뒤 검증합니다.
  */
 export async function joinRound(
   roundId: string,
@@ -113,6 +114,10 @@ export async function joinRound(
   nickname: string | null
 ): Promise<void> {
   const db = firestore();
+  if (!roundId || !uid) {
+    throw new Error('라운드 ID와 사용자 ID가 필요합니다.');
+  }
+
   const roundRef = db.collection(ROUNDS_COLLECTION).doc(roundId);
   const roundSnap = await roundRef.get();
   if (!roundSnap.exists || !roundSnap.data()) {
@@ -120,23 +125,12 @@ export async function joinRound(
   }
 
   const participantRef = roundRef.collection(PARTICIPANTS).doc(uid);
-  const participantSnap = await participantRef.get();
   const now = new Date();
-
-  if (participantSnap.exists) {
-    await db
-      .collection(USERS_COLLECTION)
-      .doc(uid)
-      .collection(ROUND_IDS)
-      .doc(roundId)
-      .set({ roundId }, { merge: true });
-    return;
-  }
 
   const participantData = {
     uid,
     nickname: nickname ?? null,
-    role: 'MEMBER',
+    role: 'MEMBER' as const,
     joinStatus: 'JOINED',
     holesEntered: 0,
     totalOut: 0,
@@ -144,7 +138,8 @@ export async function joinRound(
     total: 0,
     updatedAt: firestore.Timestamp.fromDate(now),
   };
-  await participantRef.set(participantData);
+
+  await participantRef.set(participantData, { merge: true });
 
   await db
     .collection(USERS_COLLECTION)
@@ -152,6 +147,11 @@ export async function joinRound(
     .collection(ROUND_IDS)
     .doc(roundId)
     .set({ roundId });
+
+  const verifySnap = await participantRef.get({ source: 'server' });
+  if (!verifySnap.exists) {
+    throw new Error('참가자 등록이 반영되지 않았습니다. 다시 시도해 주세요.');
+  }
 }
 
 /**
@@ -281,6 +281,121 @@ export async function fetchRoundParticipants(roundId: string): Promise<RoundPart
   return snapshot.docs.map((d) =>
     participantFromDoc(d.id, d.data() as Record<string, unknown>)
   );
+}
+
+/**
+ * 라운드 참가자 단건 조회 (rounds/{roundId}/participants/{uid})
+ */
+export async function fetchRoundParticipant(
+  roundId: string,
+  uid: string
+): Promise<RoundParticipant | null> {
+  const doc = await firestore()
+    .collection(ROUNDS_COLLECTION)
+    .doc(roundId)
+    .collection(PARTICIPANTS)
+    .doc(uid)
+    .get();
+  if (!doc.exists || !doc.data()) return null;
+  return participantFromDoc(doc.id, doc.data() as Record<string, unknown>);
+}
+
+const HOLE_NOS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18'];
+
+/**
+ * 사용자 확정 스코어 타수 목록 (스코어 확정된 라운드만, 18홀 total)
+ * MY 화면 평균/최저 타수 계산용
+ */
+export async function fetchUserConfirmedTotals(uid: string): Promise<number[]> {
+  const roundIds = await fetchUserRoundIds(uid);
+  if (roundIds.length === 0) return [];
+  const participants = await Promise.all(
+    roundIds.map((roundId) => fetchRoundParticipant(roundId, uid))
+  );
+  return participants
+    .filter((p): p is RoundParticipant => p != null && p.scoreConfirmedAt != null && p.holesEntered === 18 && p.total > 0)
+    .map((p) => p.total);
+}
+
+export type UserConfirmedRoundStats = {
+  roundIds: string[];
+  totals: number[];
+  scores: Record<string, HoleScoreData>[];
+};
+
+/**
+ * 사용자 확정 라운드 통계 (roundIds, totals, 홀별 스코어 배열)
+ * MY 화면 라운드수/베스트/평균 및 FIR/GIR/PPR 계산용
+ */
+export async function fetchUserConfirmedRoundStats(uid: string): Promise<UserConfirmedRoundStats> {
+  const roundIds = await fetchUserRoundIds(uid);
+  if (roundIds.length === 0) return { roundIds: [], totals: [], scores: [] };
+  const participants = await Promise.all(
+    roundIds.map((roundId) => fetchRoundParticipant(roundId, uid))
+  );
+  const confirmedIndices: number[] = [];
+  const totals: number[] = [];
+  for (let i = 0; i < participants.length; i++) {
+    const p = participants[i];
+    if (p != null && p.scoreConfirmedAt != null && p.holesEntered === 18 && p.total > 0) {
+      confirmedIndices.push(i);
+      totals.push(p.total);
+    }
+  }
+  const confirmedRoundIds = confirmedIndices.map((i) => roundIds[i]);
+  const scores = await Promise.all(
+    confirmedRoundIds.map((roundId) => fetchRoundScore(roundId, uid))
+  );
+  return { roundIds: confirmedRoundIds, totals, scores };
+}
+
+/** FIR(페어웨이 안착율) 계산: fairway true인 홀 수 / fairway 입력된 홀 수, 백분율. 데이터 없으면 null */
+export function computeFIR(scores: Record<string, HoleScoreData>[]): number | null {
+  let hit = 0;
+  let total = 0;
+  for (const holes of scores) {
+    for (const no of HOLE_NOS) {
+      const h = holes[no];
+      if (h && h.fairway != null) {
+        total += 1;
+        if (h.fairway) hit += 1;
+      }
+    }
+  }
+  if (total === 0) return null;
+  return Math.round((hit / total) * 1000) / 10;
+}
+
+/**
+ * GIR(그린 적중율) 계산: 퍼팅수·스코어만 사용.
+ * 그린 도달 타수 = strokes - putts. par 없으므로 par4 기준으로 2타 이내 도달 시 GIR.
+ * 즉 (strokes - putts) <= 2 인 홀 비율을 백분율로 반환. 데이터 없으면 null.
+ */
+export function computeGIR(scores: Record<string, HoleScoreData>[]): number | null {
+  let hit = 0;
+  let total = 0;
+  for (const holes of scores) {
+    for (const no of HOLE_NOS) {
+      const h = holes[no];
+      if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
+        total += 1;
+        const shotsToGreen = h.strokes - h.putts;
+        if (shotsToGreen <= 2) hit += 1;
+      }
+    }
+  }
+  if (total === 0) return null;
+  return Math.round((hit / total) * 1000) / 10;
+}
+
+/** 라운드당 퍼트 수 평균(PPR). 데이터 없으면 null */
+export function computePPR(scores: Record<string, HoleScoreData>[]): number | null {
+  if (scores.length === 0) return null;
+  const puttsPerRound = scores.map((holes) =>
+    HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0)
+  );
+  const sum = puttsPerRound.reduce((a, b) => a + b, 0);
+  return Math.round((sum / scores.length) * 10) / 10;
 }
 
 function parseHoleScore(data: unknown): HoleScoreData {

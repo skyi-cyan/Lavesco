@@ -125,8 +125,8 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
     setError(null);
     setSaving(true);
     try {
-      const handicapNum = handicap.trim() === '' ? undefined : parseFloat(handicap.trim());
-      if (handicap.trim() !== '' && (Number.isNaN(handicapNum) || handicapNum < 0 || handicapNum > 54)) {
+      const handicapNum = handicap.trim() === '' ? null : parseFloat(handicap.trim());
+      if (handicap.trim() !== '' && (Number.isNaN(handicapNum as number) || (handicapNum as number) < 0 || (handicapNum as number) > 54)) {
         setError('핸디캡은 0~54 사이 숫자를 입력해주세요.');
         setSaving(false);
         return;

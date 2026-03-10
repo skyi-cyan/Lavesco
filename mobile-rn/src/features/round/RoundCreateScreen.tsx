@@ -25,10 +25,25 @@ import type { RoundStackParamList } from '../../app/RoundStack';
 
 type Props = NativeStackScreenProps<RoundStackParamList, 'RoundCreate'>;
 
-type PickerType = 'front_course' | 'back_course' | 'tee_time' | null;
+type PickerType = 'front_course' | 'back_course' | 'tee_time' | 'date' | null;
 
 /** 티타임: 1부, 2부, 3부 */
 const TEE_TIME_OPTIONS = ['1부', '2부', '3부'];
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 11 }, (_, i) => CURRENT_YEAR - 2 + i);
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function formatScheduledDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   const { user, profile } = useAuth();
@@ -38,15 +53,36 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   const [backCourseNameDirect, setBackCourseNameDirect] = useState('');
   const [directInput, setDirectInput] = useState(false);
   const [teeTime, setTeeTime] = useState('');
+  const [scheduledDate, setScheduledDate] = useState<Date>(() => new Date());
   const [golfCourses, setGolfCourses] = useState<GolfCourse[]>([]);
   const [courses, setCourses] = useState<GolfCourseCourse[]>([]);
   const [selectedGolfCourse, setSelectedGolfCourse] = useState<GolfCourse | null>(null);
   const [frontCourse, setFrontCourse] = useState<GolfCourseCourse | null>(null);
   const [backCourse, setBackCourse] = useState<GolfCourseCourse | null>(null);
   const [pickerOpen, setPickerOpen] = useState<PickerType>(null);
+  const [pickYear, setPickYear] = useState(CURRENT_YEAR);
+  const [pickMonth, setPickMonth] = useState(new Date().getMonth() + 1);
+  const [pickDay, setPickDay] = useState(new Date().getDate());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [golfCourseSearchFocused, setGolfCourseSearchFocused] = useState(false);
+
+  const openDatePicker = () => {
+    setPickYear(scheduledDate.getFullYear());
+    setPickMonth(scheduledDate.getMonth() + 1);
+    setPickDay(scheduledDate.getDate());
+    setPickerOpen('date');
+  };
+  const confirmDatePicker = () => {
+    const maxDay = getDaysInMonth(pickYear, pickMonth);
+    const day = Math.min(pickDay, maxDay);
+    setScheduledDate(new Date(pickYear, pickMonth - 1, day));
+    setPickerOpen(null);
+  };
+  const dayOptions = Array.from(
+    { length: getDaysInMonth(pickYear, pickMonth) },
+    (_, i) => i + 1
+  );
 
   const golfCourseSearchQuery = golfCourseName.trim().toLowerCase();
   const filteredGolfCourses = golfCourseSearchQuery
@@ -157,6 +193,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           backCourseId: directInput ? '' : (backCourse?.id ?? ''),
           backCourseName: directInput ? backCourseNameDirect.trim() : (backCourse?.name ?? ''),
           teeTime: teeTime.trim() || null,
+          scheduledAt: scheduledDate,
         }
       );
       setCreating(false);
@@ -321,17 +358,28 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>티타임</Text>
-          <TouchableOpacity
-            style={styles.selectTouchable}
-            onPress={() => setPickerOpen('tee_time')}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.selectText, !teeTime && styles.selectPlaceholder]}>
-              {teeTime || '티타임 선택'}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color="#666" />
-          </TouchableOpacity>
+          <Text style={styles.label}>날짜 / 티타임</Text>
+          <View style={styles.dateTeeRow}>
+            <TouchableOpacity
+              style={[styles.selectTouchable, styles.dateTouchable]}
+              onPress={openDatePicker}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#666" />
+              <Text style={styles.selectText}>{formatScheduledDate(scheduledDate)}</Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectTouchable, styles.teeTouchable]}
+              onPress={() => setPickerOpen('tee_time')}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.selectText, !teeTime && styles.selectPlaceholder]}>
+                {teeTime || '티타임 선택'}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -446,6 +494,86 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                 </TouchableOpacity>
               )}
             />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* 날짜 선택 모달 (년/월/일) */}
+      <Modal
+        visible={pickerOpen === 'date'}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPickerOpen(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setPickerOpen(null)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>날짜 선택</Text>
+            <View style={styles.datePickerRow}>
+              <View style={styles.datePickerColumn}>
+                <Text style={styles.datePickerColumnLabel}>년</Text>
+                <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
+                  {YEAR_OPTIONS.map((y) => (
+                    <TouchableOpacity
+                      key={y}
+                      style={[styles.datePickerItem, pickYear === y && styles.datePickerItemSelected]}
+                      onPress={() => setPickYear(y)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.datePickerItemText, pickYear === y && styles.datePickerItemTextSelected]}>
+                        {y}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+              <View style={styles.datePickerColumn}>
+                <Text style={styles.datePickerColumnLabel}>월</Text>
+                <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
+                  {MONTH_OPTIONS.map((m) => (
+                    <TouchableOpacity
+                      key={m}
+                      style={[styles.datePickerItem, pickMonth === m && styles.datePickerItemSelected]}
+                      onPress={() => setPickMonth(m)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.datePickerItemText, pickMonth === m && styles.datePickerItemTextSelected]}>
+                        {m}월
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+              <View style={styles.datePickerColumn}>
+                <Text style={styles.datePickerColumnLabel}>일</Text>
+                <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
+                  {dayOptions.map((d) => (
+                    <TouchableOpacity
+                      key={d}
+                      style={[styles.datePickerItem, pickDay === d && styles.datePickerItemSelected]}
+                      onPress={() => setPickDay(d)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.datePickerItemText, pickDay === d && styles.datePickerItemTextSelected]}>
+                        {d}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+            <View style={styles.datePickerButtonRow}>
+              <TouchableOpacity style={styles.datePickerCancelButton} onPress={() => setPickerOpen(null)} activeOpacity={0.8}>
+                <Text style={styles.datePickerCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.datePickerConfirmButton} onPress={confirmDatePicker} activeOpacity={0.8}>
+                <Text style={styles.datePickerConfirmText}>확인</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -595,4 +723,62 @@ const styles = StyleSheet.create({
   },
   modalRowTitle: { fontSize: 16, color: '#111' },
   modalRowSub: { fontSize: 14, color: '#666' },
+  dateTeeRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dateTouchable: { flex: 1 },
+  teeTouchable: { flex: 1 },
+  datePickerRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+    maxHeight: 280,
+  },
+  datePickerColumn: { flex: 1 },
+  datePickerColumnLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  datePickerScroll: {
+    maxHeight: 240,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+  },
+  datePickerItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  datePickerItemSelected: {
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8,
+  },
+  datePickerItemText: { fontSize: 15, color: '#333' },
+  datePickerItemTextSelected: { fontWeight: '700', color: '#0a0' },
+  datePickerButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    marginTop: 20,
+  },
+  datePickerCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#eee',
+    alignItems: 'center',
+  },
+  datePickerCancelText: { fontSize: 16, color: '#666', fontWeight: '600' },
+  datePickerConfirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#0a0',
+    alignItems: 'center',
+  },
+  datePickerConfirmText: { fontSize: 16, color: '#fff', fontWeight: '600' },
 });

@@ -55,7 +55,7 @@ export function MainTabs(): React.JSX.Element {
       <Tab.Screen
         name="Profile"
         component={ProfileStack}
-        options={{ title: '프로필', tabBarLabel: '프로필', headerShown: false }}
+        options={{ title: 'MY', tabBarLabel: 'MY', headerShown: false }}
       />
     </Tab.Navigator>
   );

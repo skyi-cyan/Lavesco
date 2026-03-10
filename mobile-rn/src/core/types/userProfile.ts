@@ -56,19 +56,20 @@ export function userProfileFromMap(
   };
 }
 
+/** Firestore는 undefined 미지원 → null로 변환 */
 export function userProfileToMap(profile: UserProfile): Record<string, unknown> {
   return {
     uid: profile.uid,
     email: profile.email,
-    displayName: profile.displayName,
-    nickname: profile.nickname,
-    photoURL: profile.photoURL,
-    provider: profile.provider,
-    handicap: profile.handicap,
-    defaultTee: profile.defaultTee,
-    address: profile.address,
-    dateOfBirth: profile.dateOfBirth,
-    termsAgreement: profile.termsAgreement,
+    displayName: profile.displayName ?? null,
+    nickname: profile.nickname ?? null,
+    photoURL: profile.photoURL ?? null,
+    provider: profile.provider ?? null,
+    handicap: profile.handicap ?? null,
+    defaultTee: profile.defaultTee ?? null,
+    address: profile.address ?? null,
+    dateOfBirth: profile.dateOfBirth ?? null,
+    termsAgreement: profile.termsAgreement ?? null,
     createdAt: firestore.Timestamp.fromDate(profile.createdAt),
     updatedAt: firestore.Timestamp.fromDate(profile.updatedAt),
   } as Record<string, unknown>;

@@ -19,6 +19,9 @@ import type { AuthStackParamList } from '../../app/AuthStack';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
+/** 당분간 구글 로그인 비활성화 (인증 정보 이슈) */
+const GOOGLE_LOGIN_ENABLED = false;
+
 export function LoginScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
   const {
@@ -134,19 +137,23 @@ export function LoginScreen(): React.JSX.Element {
           )}
         </TouchableOpacity>
 
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>또는</Text>
-          <View style={styles.dividerLine} />
-        </View>
+        {(GOOGLE_LOGIN_ENABLED || Platform.OS === 'ios') && (
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>또는</Text>
+            <View style={styles.dividerLine} />
+          </View>
+        )}
 
-        <TouchableOpacity
-          style={styles.socialButton}
-          onPress={handleGoogleLogin}
-          disabled={isLoading}
-        >
-          <Text style={styles.socialButtonText}>Google로 로그인</Text>
-        </TouchableOpacity>
+        {GOOGLE_LOGIN_ENABLED && (
+          <TouchableOpacity
+            style={styles.socialButton}
+            onPress={handleGoogleLogin}
+            disabled={isLoading}
+          >
+            <Text style={styles.socialButtonText}>Google로 로그인</Text>
+          </TouchableOpacity>
+        )}
 
         {Platform.OS === 'ios' && (
           <TouchableOpacity

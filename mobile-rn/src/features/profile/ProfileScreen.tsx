@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,17 @@ import {
   Alert,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
+import {
+  fetchUserConfirmedRoundStats,
+  computeFIR,
+  computeGIR,
+  computePPR,
+} from '../../core/services/roundService';
 import type { ProfileStackParamList } from '../../app/ProfileStack';
 
 type ProfileScreenNav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileMain'>;
@@ -21,6 +28,41 @@ type Props = {
 
 export function ProfileScreen({ navigation }: Props): React.JSX.Element {
   const { user, profile, signOut } = useAuth();
+  const [roundStats, setRoundStats] = useState<{
+    totals: number[];
+    scores: Record<string, import('../../core/types/round').HoleScoreData>[];
+  }>({ totals: [], scores: [] });
+  const [totalsLoading, setTotalsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setRoundStats({ totals: [], scores: [] });
+      setTotalsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTotalsLoading(true);
+    fetchUserConfirmedRoundStats(user.uid)
+      .then(({ totals, scores }) => {
+        if (!cancelled) setRoundStats({ totals, scores });
+      })
+      .finally(() => {
+        if (!cancelled) setTotalsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  const { totals, scores } = roundStats;
+  const avgScore =
+    totals.length > 0
+      ? Math.round((totals.reduce((a, b) => a + b, 0) / totals.length) * 10) / 10
+      : null;
+  const minScore = totals.length > 0 ? Math.min(...totals) : null;
+  const fir = computeFIR(scores);
+  const gir = computeGIR(scores);
+  const ppr = computePPR(scores);
 
   const displayName =
     profile?.nickname ?? profile?.displayName ?? profile?.email ?? user?.email ?? '사용자';
@@ -73,6 +115,72 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
               <Text style={styles.summarySub}>생년월일 {profile.dateOfBirth}</Text>
             ) : null}
           </View>
+        </View>
+      </View>
+
+      {/* 기록: 라운드수 · 베스트 · 평균 (1카드) */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>기록</Text>
+        <View style={styles.statsCard}>
+          {totalsLoading ? (
+            <View style={styles.statsLoadingWrap}>
+              <ActivityIndicator size="small" color="#059669" />
+              <Text style={styles.statsLoadingText}>기록 불러오는 중...</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.statsRowLabels}>
+                <Text style={styles.statsLabel}>라운드수</Text>
+                <Text style={styles.statsLabel}>베스트</Text>
+                <Text style={styles.statsLabel}>평균</Text>
+              </View>
+              <View style={styles.statsRowValues}>
+                <Text style={[styles.statsNum, styles.statsNumRound]}>
+                  {totals.length}
+                </Text>
+                <Text style={[styles.statsNum, styles.statsNumBest]}>
+                  {minScore != null ? `${minScore}` : '-'}
+                </Text>
+                <Text style={[styles.statsNum, styles.statsNumAvg]}>
+                  {avgScore != null ? avgScore : '-'}
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* 페어웨이 안착율 · 그린 적중율 · 평균퍼팅수 (1카드) */}
+        <View style={[styles.statsCard, styles.statsCardMargin]}>
+          {totalsLoading ? (
+            <View style={styles.statsLoadingWrap}>
+              <ActivityIndicator size="small" color="#059669" />
+              <Text style={styles.statsLoadingText}>기록 불러오는 중...</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.statsRowLabels}>
+                <Text style={styles.statsLabelCompact} numberOfLines={1}>페어웨이 안착율</Text>
+                <Text style={styles.statsLabelCompact}>그린 적중율</Text>
+                <Text style={styles.statsLabelCompact}>평균퍼팅수</Text>
+              </View>
+              <View style={styles.statsRowSubLabels}>
+                <Text style={styles.statsSubLabel}>(FIR)</Text>
+                <Text style={styles.statsSubLabel}>(GIR)</Text>
+                <Text style={styles.statsSubLabel}>(PPR)</Text>
+              </View>
+              <View style={styles.statsRowValues}>
+                <Text style={[styles.statsNum, styles.statsNumFIR]}>
+                  {fir != null ? `${fir}%` : '-'}
+                </Text>
+                <Text style={[styles.statsNum, styles.statsNumGIR]}>
+                  {gir != null ? `${gir}%` : '-'}
+                </Text>
+                <Text style={[styles.statsNum, styles.statsNumPPR]}>
+                  {ppr != null ? ppr : '-'}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
       </View>
 
@@ -192,6 +300,91 @@ const styles = StyleSheet.create({
   menuRowBorder: {
     borderTopWidth: 1,
     borderColor: '#f0f0f0',
+  },
+  statsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+  },
+  statsCardMargin: {
+    marginTop: 12,
+  },
+  statsRowLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  statsLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  statsLabelCompact: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  statsRowSubLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  statsSubLabel: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  statsRowValues: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  statsNum: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  statsNumRound: {
+    color: '#2563eb',
+  },
+  statsNumBest: {
+    color: '#059669',
+  },
+  statsNumAvg: {
+    color: '#ea580c',
+  },
+  statsNumFIR: {
+    color: '#0891b2',
+  },
+  statsNumGIR: {
+    color: '#7c3aed',
+  },
+  statsNumPPR: {
+    color: '#dc2626',
+  },
+  statsLoadingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  statsLoadingText: {
+    fontSize: 14,
+    color: '#64748b',
+    marginLeft: 8,
   },
   menuLabel: {
     fontSize: 16,

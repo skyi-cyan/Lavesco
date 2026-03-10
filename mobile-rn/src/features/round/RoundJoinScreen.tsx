@@ -86,9 +86,11 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
         '라운드에 참여했습니다.',
         [{ text: '확인', onPress: () => navigation.replace('RoundDetail', { roundId: foundRound.id }) }]
       );
-    } catch (e) {
-      const message = (e as Error)?.message ?? '참여에 실패했습니다.';
-      Alert.alert('참여 실패', message);
+    } catch (e: unknown) {
+      const err = e as { message?: string; code?: string };
+      const message = err?.message ?? '참여에 실패했습니다.';
+      const code = err?.code ? ` (${err.code})` : '';
+      Alert.alert('참여 실패', `${message}${code}`);
     } finally {
       setJoining(false);
     }

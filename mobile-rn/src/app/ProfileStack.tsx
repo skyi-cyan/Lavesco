@@ -21,7 +21,7 @@ export function ProfileStack(): React.JSX.Element {
       <Stack.Screen
         name="ProfileMain"
         component={ProfileScreen}
-        options={{ title: '프로필' }}
+        options={{ title: 'MY' }}
       />
       <Stack.Screen
         name="ProfileEdit"
