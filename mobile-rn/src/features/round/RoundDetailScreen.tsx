@@ -12,6 +12,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
+import { grossStrokesForHole, playScoreSound } from '../../core/services/scoreSoundService';
 import { fetchHolesUnderCourse } from '../../core/services/courseService';
 import type { Round } from '../../core/types/round';
 import type { RoundParticipant } from '../../core/types/round';
@@ -61,22 +62,22 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       : (round?.backCourseName || round?.golfCourseName || '-');
   const hasBackCourse = !!(round?.backCourseId && (round?.backCourseName || round?.golfCourseName));
 
-  /** 현재 홀 변경 시 draft를 저장된 값(또는 기본값)으로 동기화 */
+  /** 현재 홀 변경 시 draft를 저장된 값(또는 기본값)으로 동기화. 스코어 미입력 시 par 기준 0으로 둠. */
   useEffect(() => {
     const saved = user?.uid ? scoresByUid[user.uid]?.[currentHoleNo] : undefined;
     const initial: HoleScoreData =
       saved != null
         ? {
-            strokes: saved.strokes ?? 0,
+            strokes: grossStrokesForHole(saved.strokes, holePar),
             putts: saved.putts ?? 0,
             fairway: saved.fairway,
             rough: saved.rough,
             penalty: saved.penalty,
             ob: saved.ob,
           }
-        : { strokes: 0, putts: 0 };
+        : { strokes: holePar, putts: 0 };
     setDraftHoleScore(initial);
-  }, [currentHoleNo, user?.uid, scoresByUid]);
+  }, [currentHoleNo, user?.uid, scoresByUid, holePar]);
 
   const load = useCallback(async () => {
     if (!roundId) return;
@@ -172,8 +173,17 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     setDraftHoleScore((prev) => updater(prev));
   }, []);
 
+  /** toPar 기준 변경: 0=par, -1=birdie, -2=eagle, +1=bogey … → strokes = par + toPar (최소 1타) */
   const setStrokes = (delta: number) => {
-    updateDraft((h) => ({ ...h, strokes: (h.strokes ?? 0) + delta }));
+    updateDraft((h) => ({
+      ...h,
+      strokes: Math.max(1, (h.strokes ?? holePar) + delta),
+    }));
+  };
+  /** toPar 표시용: strokes → 0 / -1 / -2 / +1 / +2 … */
+  const toParDisplay = (strokes: number) => {
+    const toPar = strokes - holePar;
+    return toPar === 0 ? '0' : toPar > 0 ? `+${toPar}` : `${toPar}`;
   };
   const setPutts = (delta: number) => {
     updateDraft((h) => ({ ...h, putts: Math.max(0, (h.putts ?? 0) + delta) }));
@@ -191,33 +201,6 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     updateDraft((h) => ({ ...h, ob: h.ob ? 0 : 1 }));
   };
 
-  /** 현재 홀 저장: Firestore 저장 성공 시에만 scoresByUid 반영 */
-  const handleSaveCurrentHole = useCallback(async () => {
-    if (!user?.uid || !roundId) return;
-    setSavingHole(true);
-    const nextHoles = { ...(scoresByUid[user.uid] ?? {}), [currentHoleNo]: draftHoleScore };
-    try {
-      await saveRoundScore(roundId, user.uid, nextHoles);
-      setScoresByUid((s) => ({ ...s, [user.uid]: nextHoles }));
-    } catch {
-      // 저장 실패 시 상태 유지
-    } finally {
-      setSavingHole(false);
-    }
-  }, [roundId, user?.uid, currentHoleNo, draftHoleScore, scoresByUid]);
-
-  const getOutTotal = (uid: string): number => {
-    const holes = scoresByUid[uid] ?? {};
-    return HOLE_NUMBERS_FRONT.reduce((sum, no) => sum + (holes[no]?.strokes ?? 0), 0);
-  };
-
-  const getInTotal = (uid: string): number => {
-    const holes = scoresByUid[uid] ?? {};
-    return HOLE_NUMBERS_BACK.reduce((sum, no) => sum + (holes[no]?.strokes ?? 0), 0);
-  };
-
-  const getTotal = (uid: string): number => getOutTotal(uid) + getInTotal(uid);
-
   /** 홀 번호(1~18)에 해당하는 par. 전반은 frontHoleInfo, 후반은 backHoleInfo 키 1~9 */
   const getParForHoleNo = useCallback(
     (no: string): number => {
@@ -227,6 +210,59 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     },
     [frontHoleInfo, backHoleInfo]
   );
+
+  /** 현재 홀 저장: Firestore 저장 성공 시에만 scoresByUid 반영, 사운드 재생 */
+  const normalizeMyHolesForPersist = useCallback(
+    (holes: Record<string, HoleScoreData>): Record<string, HoleScoreData> => {
+      const out = { ...holes };
+      for (const no of ALL_HOLE_NUMBERS) {
+        const h = out[no];
+        if (!h) continue;
+        const par = getParForHoleNo(no);
+        out[no] = { ...h, strokes: grossStrokesForHole(h.strokes, par) };
+      }
+      return out;
+    },
+    [getParForHoleNo]
+  );
+
+  const handleSaveCurrentHole = useCallback(async () => {
+    if (!user?.uid || !roundId) return;
+    setSavingHole(true);
+    const par = getParForHoleNo(currentHoleNo);
+    const holeScore: HoleScoreData = {
+      ...draftHoleScore,
+      strokes: grossStrokesForHole(draftHoleScore.strokes, par),
+    };
+    const nextHoles = { ...(scoresByUid[user.uid] ?? {}), [currentHoleNo]: holeScore };
+    try {
+      await saveRoundScore(roundId, user.uid, nextHoles);
+      setScoresByUid((s) => ({ ...s, [user.uid]: nextHoles }));
+      playScoreSound(nextHoles, currentHoleNo, holeScore.strokes, getParForHoleNo);
+    } catch {
+      // 저장 실패 시 상태 유지
+    } finally {
+      setSavingHole(false);
+    }
+  }, [roundId, user?.uid, currentHoleNo, draftHoleScore, scoresByUid, getParForHoleNo]);
+
+  const getOutTotal = (uid: string): number => {
+    const holes = scoresByUid[uid] ?? {};
+    return HOLE_NUMBERS_FRONT.reduce(
+      (sum, no) => sum + grossStrokesForHole(holes[no]?.strokes, getParForHoleNo(no)),
+      0
+    );
+  };
+
+  const getInTotal = (uid: string): number => {
+    const holes = scoresByUid[uid] ?? {};
+    return HOLE_NUMBERS_BACK.reduce(
+      (sum, no) => sum + grossStrokesForHole(holes[no]?.strokes, getParForHoleNo(no)),
+      0
+    );
+  };
+
+  const getTotal = (uid: string): number => getOutTotal(uid) + getInTotal(uid);
 
   /** 전반 9홀 par 합계 */
   const parOut = HOLE_NUMBERS_FRONT.reduce((sum, no) => sum + getParForHoleNo(no), 0);
@@ -243,12 +279,6 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     },
     []
   );
-
-  /** 스코어보드 셀 표시: 파면 'ㅇ', 아니면 타수(0 포함). 저장된 홀에서만 호출 */
-  const getScoreCellText = useCallback((strokes: number, par: number): string => {
-    if (strokes === par) return 'ㅇ';
-    return String(strokes);
-  }, []);
 
   const toggleViewNine = () => {
     if (hasBackCourse) setViewNine((v) => (v === 'front' ? 'back' : 'front'));
@@ -273,17 +303,17 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     if (Date.now() - createdAtMs < TWELVE_HOURS_MS) return;
 
     autoConfirmedRoundIdRef.current = roundId;
-    const holes = scoresByUid[user.uid] ?? {};
+    const holes = normalizeMyHolesForPersist(scoresByUid[user.uid] ?? {});
     confirmRoundScore(roundId, user.uid, holes)
       .then(() => load())
       .catch(() => {
         autoConfirmedRoundIdRef.current = null;
       });
-  }, [round?.createdAt, roundId, user?.uid, isScoreConfirmed, scoresByUid, load]);
+  }, [round?.createdAt, roundId, user?.uid, isScoreConfirmed, scoresByUid, load, normalizeMyHolesForPersist]);
 
   const handleConfirmScore = useCallback(async () => {
     if (!user?.uid || !roundId || confirming || isScoreConfirmed || !all18HolesSaved) return;
-    const holes = scoresByUid[user.uid] ?? {};
+    const holes = normalizeMyHolesForPersist(scoresByUid[user.uid] ?? {});
     setConfirming(true);
     try {
       await confirmRoundScore(roundId, user.uid, holes);
@@ -295,7 +325,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     } finally {
       setConfirming(false);
     }
-  }, [roundId, user?.uid, scoresByUid, confirming, isScoreConfirmed, all18HolesSaved, load]);
+  }, [roundId, user?.uid, scoresByUid, confirming, isScoreConfirmed, all18HolesSaved, load, normalizeMyHolesForPersist]);
 
   if (loading || !round) {
     return (
@@ -359,17 +389,19 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         <Text style={styles.holeInfoDistance}>{holeDistance > 0 ? `${holeDistance}m` : '-'}</Text>
       </View>
 
-      {/* SCORE / PUTT (확정 시 읽기 전용) */}
+      {/* SCORE: par 기준 0=par, -1=birdie, -2=eagle, +1=bogey … / PUTT (확정 시 읽기 전용) */}
       <View style={styles.scoreRow}>
         <View style={styles.scoreBlock}>
-          <Text style={styles.scoreBlockLabel}>SCORE</Text>
+          <Text style={styles.scoreBlockLabel}>SCORE (to Par)</Text>
           <View style={styles.scoreControl}>
             {!isScoreConfirmed && (
               <TouchableOpacity style={styles.scoreBtn} onPress={() => setStrokes(-1)}>
                 <Ionicons name="remove" size={24} color="#333" />
               </TouchableOpacity>
             )}
-            <Text style={styles.scoreValue}>{draftHoleScore.strokes}</Text>
+            <Text style={styles.scoreValue}>
+              {toParDisplay(draftHoleScore.strokes ?? holePar)}
+            </Text>
             {!isScoreConfirmed && (
               <TouchableOpacity style={styles.scoreBtn} onPress={() => setStrokes(1)}>
                 <Ionicons name="add" size={24} color="#333" />
@@ -503,15 +535,32 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
 
       {/* 스코어카드 테이블 */}
       <View style={styles.tableWrap}>
-        <View style={styles.tableHeader}>
-          <View style={[styles.tableCell, styles.tableCellName]}><Text style={styles.tableHeaderText} /></View>
-          {holeNumbers.map((no) => (
-            <View key={no} style={styles.tableCell}>
-              <Text style={styles.tableHeaderText}>{no}</Text>
+        <View style={styles.tableHeaderBlock}>
+          <View style={styles.tableHeader}>
+            <View style={[styles.tableCell, styles.tableCellName]}>
+              <Text style={styles.tableHeaderText} />
             </View>
-          ))}
-          <View style={styles.tableCell}>
-            <Text style={styles.tableHeaderText}>{viewNine === 'front' ? 'Out' : 'In'}</Text>
+            {holeNumbers.map((no) => (
+              <View key={no} style={styles.tableCell}>
+                <Text style={styles.tableHeaderText}>{no}</Text>
+              </View>
+            ))}
+            <View style={styles.tableCell}>
+              <Text style={styles.tableHeaderText}>{viewNine === 'front' ? 'Out' : 'In'}</Text>
+            </View>
+          </View>
+          <View style={styles.tableHeaderParRow}>
+            <View style={[styles.tableCell, styles.tableCellName, styles.tableCellPar]}>
+              <Text style={styles.tableParRowText}>Par</Text>
+            </View>
+            {holeNumbers.map((no) => (
+              <View key={`par-${no}`} style={[styles.tableCell, styles.tableCellPar]}>
+                <Text style={styles.tableParRowText}>{getParForHoleNo(no)}</Text>
+              </View>
+            ))}
+            <View style={[styles.tableCell, styles.tableCellPar]}>
+              <Text style={styles.tableParRowText}>{viewNine === 'front' ? parOut : parIn}</Text>
+            </View>
           </View>
         </View>
         {participants.map((p) => {
@@ -526,15 +575,24 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
               </View>
               {holeNumbers.map((no) => {
                 const saved = scoresByUid[p.uid]?.[no];
-                const strokes = saved?.strokes ?? 0;
                 const par = getParForHoleNo(no);
+                const gross = grossStrokesForHole(saved?.strokes, par);
                 const isSaved = saved !== undefined;
-                const cellColor = isSaved ? getScoreColor(strokes, par) : '#333333';
+                const cellColor = isSaved ? getScoreColor(gross, par) : '#333333';
                 return (
                   <View key={no} style={styles.tableCell}>
-                    <Text style={[styles.tableCellText, { color: cellColor }]}>
-                      {isSaved ? getScoreCellText(strokes, par) : '－'}
-                    </Text>
+                    {!isSaved ? (
+                      <Text style={[styles.tableCellText, { color: '#333333' }]}>－</Text>
+                    ) : gross < par ? (
+                      <View style={styles.heartWrap}>
+                        <Ionicons name="heart-outline" size={18} color="#e11d48" />
+                        <Text style={styles.heartText}>{gross}</Text>
+                      </View>
+                    ) : (
+                      <Text style={[styles.tableCellText, { color: cellColor }]}>
+                        {String(gross)}
+                      </Text>
+                    )}
                   </View>
                 );
               })}
@@ -550,11 +608,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                     },
                   ]}
                 >
-                  {sumForView > 0
-                    ? sumForView === parForView
-                      ? 'ㅇ'
-                      : String(sumForView)
-                    : '－'}
+                  {sumForView > 0 ? String(sumForView) : '－'}
                 </Text>
               </View>
             </View>
@@ -719,11 +773,26 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     overflow: 'hidden',
   },
-  tableHeader: {
-    flexDirection: 'row',
+  tableHeaderBlock: {
     backgroundColor: '#2e7d32',
     borderBottomWidth: 1,
-    borderColor: '#1b5e20',
+    borderBottomColor: '#1b5e20',
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.2)',
+  },
+  tableHeaderParRow: {
+    flexDirection: 'row',
+  },
+  tableCellPar: {
+    paddingVertical: 4,
+  },
+  tableParRowText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.95)',
   },
   tableHeaderText: { fontSize: 12, fontWeight: '700', color: '#fff' },
   tableRow: {
@@ -736,6 +805,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heartWrap: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heartText: {
+    position: 'absolute',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1b5e20',
+    textAlign: 'center',
+    lineHeight: 12,
+    includeFontPadding: false,
   },
   tableCellName: {
     width: 48,
