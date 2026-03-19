@@ -185,6 +185,12 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     const toPar = strokes - holePar;
     return toPar === 0 ? '0' : toPar > 0 ? `+${toPar}` : `${toPar}`;
   };
+  /** 숫자 toPar(=gross-par) 포맷팅 (+면 + prefix) */
+  const formatToParValue = (toPar: number) =>
+    toPar === 0 ? '0' : toPar > 0 ? `${toPar}` : `${toPar}`;
+  /** Out/In/Total 요약 행용: 양수는 `+N` 표기 */
+  const formatToParValueWithPlus = (toPar: number) =>
+    toPar === 0 ? '0' : toPar > 0 ? `+${toPar}` : `${toPar}`;
   const setPutts = (delta: number) => {
     updateDraft((h) => ({ ...h, putts: Math.max(0, (h.putts ?? 0) + delta) }));
   };
@@ -472,22 +478,65 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
 
       {/* Out / In / Total 합계 */}
       {user?.uid && (
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Out</Text>
-            <Text style={styles.summaryValue}>{getOutTotal(user.uid) || '-'}</Text>
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>In</Text>
-            <Text style={styles.summaryValue}>{getInTotal(user.uid) || '-'}</Text>
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryItem}>
-            <Text style={styles.summaryLabel}>Total</Text>
-            <Text style={styles.summaryValue}>{getTotal(user.uid) || '-'}</Text>
-          </View>
-        </View>
+        (() => {
+          const uid = user.uid;
+          const outTotal = getOutTotal(uid);
+          const inTotal = getInTotal(uid);
+          const total = getTotal(uid);
+          const outToPar = outTotal - parOut;
+          const inToPar = inTotal - parIn;
+          const totalToPar = total - (parOut + parIn);
+          const hasOut = outTotal > 0;
+          const hasIn = inTotal > 0;
+          const hasTotal = total > 0;
+
+          const outColor = hasOut ? getScoreColor(outTotal, parOut) : '#333333';
+          const inColor = hasIn ? getScoreColor(inTotal, parIn) : '#333333';
+          const totalColor = hasTotal ? getScoreColor(total, parOut + parIn) : '#333333';
+
+          return (
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Out</Text>
+                <Text style={styles.summaryValue}>
+                  {hasOut ? outTotal : '－'}
+                  {hasOut ? ' ' : null}
+                  {hasOut ? (
+                    <Text style={{ color: outColor }}>
+                      ({formatToParValueWithPlus(outToPar)})
+                    </Text>
+                  ) : null}
+                </Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>In</Text>
+                <Text style={styles.summaryValue}>
+                  {hasIn ? inTotal : '－'}
+                  {hasIn ? ' ' : null}
+                  {hasIn ? (
+                    <Text style={{ color: inColor }}>
+                      ({formatToParValueWithPlus(inToPar)})
+                    </Text>
+                  ) : null}
+                </Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Total</Text>
+                <Text style={styles.summaryValue}>
+                  {hasTotal ? total : '－'}
+                  {hasTotal ? ' ' : null}
+                  {hasTotal ? (
+                    <Text style={{ color: totalColor }}>
+                      ({formatToParValueWithPlus(totalToPar)})
+                    </Text>
+                  ) : null}
+                </Text>
+              </View>
+            </View>
+          );
+        })()
       )}
 
       {/* 홀 저장 + 스코어 확정 (한 줄, 확정 시 뱃지만 표시) */}
@@ -577,6 +626,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                 const saved = scoresByUid[p.uid]?.[no];
                 const par = getParForHoleNo(no);
                 const gross = grossStrokesForHole(saved?.strokes, par);
+                const toPar = gross - par;
                 const isSaved = saved !== undefined;
                 const cellColor = isSaved ? getScoreColor(gross, par) : '#333333';
                 return (
@@ -586,17 +636,21 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                     ) : gross < par ? (
                       <View style={styles.heartWrap}>
                         <Ionicons name="heart-outline" size={18} color="#e11d48" />
-                        <Text style={styles.heartText}>{gross}</Text>
+                        <Text style={styles.heartText}>{formatToParValue(toPar)}</Text>
                       </View>
                     ) : (
                       <Text style={[styles.tableCellText, { color: cellColor }]}>
-                        {String(gross)}
+                        {formatToParValue(toPar)}
                       </Text>
                     )}
                   </View>
                 );
               })}
               <View style={styles.tableCell}>
+                {/** Out/In 합계: (현재 총점=gross 합) + (괄호: toPar 합) */}
+                {(() => {
+                  const sumToPar = sumForView - parForView;
+                  return (
                 <Text
                   style={[
                     styles.tableCellText,
@@ -608,8 +662,10 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                     },
                   ]}
                 >
-                  {sumForView > 0 ? String(sumForView) : '－'}
+                  {sumForView > 0 ? formatToParValue(sumToPar) : '－'}
                 </Text>
+                  );
+                })()}
               </View>
             </View>
           );

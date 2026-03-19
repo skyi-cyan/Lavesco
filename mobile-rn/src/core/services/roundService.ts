@@ -40,6 +40,51 @@ const SCORES = 'scores';
 const USERS_COLLECTION = 'users';
 const ROUND_IDS = 'roundIds';
 
+// ---- In-memory caches (for HomeScreen stats speed-up) ----
+// Firestore reads are relatively expensive in RN. HomeScreen stats may trigger multiple reads
+// across roundIds (participants, scores, and round meta), so we memoize short-lived results.
+const CACHE_TTL_MS = 15 * 1000; // keep small to avoid showing stale stats for long
+const roundCache = new Map<string, { expiresAt: number; value: Round | null }>();
+const roundInFlight = new Map<string, Promise<Round | null>>();
+
+const participantCache = new Map<string, { expiresAt: number; value: RoundParticipant | null }>();
+const participantInFlight = new Map<string, Promise<RoundParticipant | null>>();
+
+const scoreCache = new Map<string, { expiresAt: number; value: Record<string, HoleScoreData> }>();
+const scoreInFlight = new Map<string, Promise<Record<string, HoleScoreData>>>();
+
+function cacheKeyRound(roundId: string) {
+  return `round:${roundId}`;
+}
+function cacheKeyParticipant(roundId: string, uid: string) {
+  return `participant:${roundId}:${uid}`;
+}
+function cacheKeyScore(roundId: string, uid: string) {
+  return `score:${roundId}:${uid}`;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current], current);
+    }
+  }
+
+  const workers = new Array(Math.min(concurrency, items.length)).fill(0).map(() => runWorker());
+  await Promise.all(workers);
+  return results;
+}
+
 function toDate(v: unknown): Date {
   if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
     return (v as { toDate: () => Date }).toDate();
@@ -86,9 +131,26 @@ export async function fetchUserRoundIds(uid: string): Promise<string[]> {
  * 라운드 단건 조회
  */
 export async function fetchRound(roundId: string): Promise<Round | null> {
-  const doc = await firestore().collection(ROUNDS_COLLECTION).doc(roundId).get();
-  if (!doc.exists || !doc.data()) return null;
-  return roundFromDoc(doc.id, doc.data() as Record<string, unknown>);
+  const key = cacheKeyRound(roundId);
+  const cached = roundCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = roundInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    const doc = await firestore().collection(ROUNDS_COLLECTION).doc(roundId).get();
+    if (!doc.exists || !doc.data()) return null;
+    return roundFromDoc(doc.id, doc.data() as Record<string, unknown>);
+  })();
+
+  roundInFlight.set(key, promise);
+  try {
+    const value = await promise;
+    roundCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    return value;
+  } finally {
+    roundInFlight.delete(key);
+  }
 }
 
 /**
@@ -269,6 +331,13 @@ function participantFromDoc(id: string, data: Record<string, unknown>): RoundPar
     total: (data.total as number) ?? 0,
     updatedAt: toDate(data.updatedAt),
     scoreConfirmedAt: data.scoreConfirmedAt ? toDate(data.scoreConfirmedAt) : null,
+
+    // HomeScreen 통계 최적화용 집계값 (없으면 fallback 계산)
+    totalPutts: data.totalPutts as number | undefined,
+    girHitCount: data.girHitCount as number | undefined,
+    girTotalCount: data.girTotalCount as number | undefined,
+    firHitCount: data.firHitCount as number | undefined,
+    firTotalCount: data.firTotalCount as number | undefined,
   };
 }
 
@@ -293,6 +362,12 @@ export async function fetchRoundParticipant(
   roundId: string,
   uid: string
 ): Promise<RoundParticipant | null> {
+  const key = cacheKeyParticipant(roundId, uid);
+  const cached = participantCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = participantInFlight.get(key);
+  if (inFlight) return inFlight;
+
   const ref = firestore()
     .collection(ROUNDS_COLLECTION)
     .doc(roundId)
@@ -302,13 +377,24 @@ export async function fetchRoundParticipant(
   // 스코어 확정 직후에는 캐시가 최신이 아닐 수 있어 서버 우선으로 조회합니다.
   // 오프라인 등으로 서버 조회가 실패하면 캐시 조회로 폴백합니다.
   let doc: FirebaseFirestoreTypes.DocumentSnapshot;
+  const promise = (async () => {
+    try {
+      doc = await ref.get({ source: 'server' });
+    } catch {
+      doc = await ref.get();
+    }
+    if (!doc.exists || !doc.data()) return null;
+    return participantFromDoc(doc.id, doc.data() as Record<string, unknown>);
+  })();
+
+  participantInFlight.set(key, promise);
   try {
-    doc = await ref.get({ source: 'server' });
-  } catch {
-    doc = await ref.get();
+    const value = await promise;
+    participantCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    return value;
+  } finally {
+    participantInFlight.delete(key);
   }
-  if (!doc.exists || !doc.data()) return null;
-  return participantFromDoc(doc.id, doc.data() as Record<string, unknown>);
 }
 
 const HOLE_NOS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18'];
@@ -320,8 +406,8 @@ const HOLE_NOS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
 export async function fetchUserConfirmedTotals(uid: string): Promise<number[]> {
   const roundIds = await fetchUserRoundIds(uid);
   if (roundIds.length === 0) return [];
-  const participants = await Promise.all(
-    roundIds.map((roundId) => fetchRoundParticipant(roundId, uid))
+  const participants = await mapWithConcurrency(roundIds, 5, (roundId) =>
+    fetchRoundParticipant(roundId, uid)
   );
   return participants
     .filter((p): p is RoundParticipant => p != null && p.scoreConfirmedAt != null && p.holesEntered === 18 && p.total > 0)
@@ -331,81 +417,279 @@ export async function fetchUserConfirmedTotals(uid: string): Promise<number[]> {
 export type UserConfirmedRoundStats = {
   roundIds: string[];
   totals: number[];
-  scores: Record<string, HoleScoreData>[];
-  /** FIR: 파4/파5 홀에서 FW 체크된 홀 수 / (파4+파5 홀 수) */
-  fir: number | null;
+  // 아래 3개는 HomeScreen의 FIR/GIR/PPR 계산값을 바로 제공
+  // (신규 스키마: participants/{uid}에 집계값이 저장되어 있으므로 holes 조회 횟수를 줄일 수 있음)
+  fir: number | null; // (firHit / firTotal) * 100
+  gir: number | null; // (girHit / girTotal) * 100
+  ppr: number | null; // (totalPuttsSum / roundCount)
 };
+
+// HomeScreen에서 같은 통계를 짧은 시간 반복 조회하면 Firestore 읽기/연산이 누적됩니다.
+// (특히 FIR 계산이 course/holes 조회를 동반)
+// 간단한 메모리 캐시를 둬서 체감 로딩 시간을 줄입니다.
+const USER_CONFIRMED_ROUND_STATS_CACHE_TTL_MS = 30 * 1000;
+const userConfirmedRoundStatsCache = new Map<
+  string,
+  { expiresAt: number; value: UserConfirmedRoundStats }
+>();
+
+const USER_STATS_COLLECTION = 'userStats';
+const CONFIRMED_ROUND_STATS_DOC_ID = 'confirmedRoundStats';
 
 /**
  * 사용자 확정 라운드 통계 (roundIds, totals, 홀별 스코어 배열)
  * MY 화면 라운드수/베스트/평균 및 FIR/GIR/PPR 계산용
  */
-export async function fetchUserConfirmedRoundStats(uid: string): Promise<UserConfirmedRoundStats> {
-  const roundIds = await fetchUserRoundIds(uid);
-  if (roundIds.length === 0) return { roundIds: [], totals: [], scores: [], fir: null };
-  const participants = await Promise.all(
-    roundIds.map((roundId) => fetchRoundParticipant(roundId, uid))
-  );
-  const confirmedIndices: number[] = [];
-  const totals: number[] = [];
-  for (let i = 0; i < participants.length; i++) {
-    const p = participants[i];
-    if (p != null && p.scoreConfirmedAt != null && p.holesEntered === 18 && p.total > 0) {
-      confirmedIndices.push(i);
-      totals.push(p.total);
+export async function fetchUserConfirmedRoundStats(
+  uid: string,
+  opts?: { forceRecompute?: boolean }
+): Promise<UserConfirmedRoundStats> {
+  const forceRecompute = opts?.forceRecompute ?? false;
+  const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+  const cached = userConfirmedRoundStatsCache.get(uid);
+  if (!forceRecompute && cached && cached.expiresAt > Date.now()) return cached.value;
+
+  if (!forceRecompute) {
+    // HomeScreen 최적화: 누적 통계를 Materialized View처럼 저장해두고 1회 read로 끝냅니다.
+    try {
+      const doc = await firestore()
+        .collection(USERS_COLLECTION)
+        .doc(uid)
+        .collection(USER_STATS_COLLECTION)
+        .doc(CONFIRMED_ROUND_STATS_DOC_ID)
+        .get();
+      const d = doc.data() as Record<string, unknown> | undefined;
+      if (!d) throw new Error('user confirmed stats doc has no data');
+      const roundIds = Array.isArray(d.roundIds) ? (d.roundIds.filter((x): x is string => typeof x === 'string')) : [];
+      const totals = Array.isArray(d.totals) ? (d.totals.filter((x): x is number => typeof x === 'number')) : [];
+      const fir = typeof d.fir === 'number' ? d.fir : null;
+      const gir = typeof d.gir === 'number' ? d.gir : null;
+      const ppr = typeof d.ppr === 'number' ? d.ppr : null;
+
+      const result: UserConfirmedRoundStats = { roundIds, totals, fir, gir, ppr };
+      userConfirmedRoundStatsCache.set(uid, {
+        expiresAt: Date.now() + USER_CONFIRMED_ROUND_STATS_CACHE_TTL_MS,
+        value: result,
+      });
+      if (isDev) {
+        console.log('[stats] confirmedRoundStats doc hit', {
+          uid,
+          roundCount: roundIds.length,
+          fir,
+          gir,
+          ppr,
+        });
+      }
+      return result;
+    } catch {
+      // doc read 실패 시 기존 방식 계산으로 fallback
+      if (isDev) console.log('[stats] confirmedRoundStats doc read failed, fallback', { uid });
     }
   }
-  const confirmedRoundIds = confirmedIndices.map((i) => roundIds[i]);
-  const scores = await Promise.all(
-    confirmedRoundIds.map((roundId) => fetchRoundScore(roundId, uid))
+
+  const roundIds = await fetchUserRoundIds(uid);
+  if (roundIds.length === 0) {
+    const empty: UserConfirmedRoundStats = { roundIds: [], totals: [], fir: null, gir: null, ppr: null };
+    userConfirmedRoundStatsCache.set(uid, {
+      expiresAt: Date.now() + USER_CONFIRMED_ROUND_STATS_CACHE_TTL_MS,
+      value: empty,
+    });
+    return empty;
+  }
+  const participants = await mapWithConcurrency(roundIds, 5, (roundId) =>
+    fetchRoundParticipant(roundId, uid)
   );
-  // 18홀 미만 스코어는 통계에서 제외 (실제 홀별 데이터 기준)
-  const full18Indices = scores
-    .map((holes, i) => ({ holes, i }))
-    .filter(({ holes }) => HOLE_NOS.every((no) => holes[no] != null))
-    .map(({ i }) => i);
 
-  const fullRoundIds = full18Indices.map((i) => confirmedRoundIds[i]);
-  const fullTotals = full18Indices.map((i) => totals[i]);
-  const fullScores = full18Indices.map((i) => scores[i]);
+  type ConfirmedCandidate = { roundId: string; p: NonNullable<typeof participants[number]> };
+  const confirmed = participants
+    .map((p, i) => ({ roundId: roundIds[i], p }))
+    .filter(
+      (x): x is ConfirmedCandidate =>
+        x.p != null && x.p.scoreConfirmedAt != null && x.p.holesEntered === 18 && x.p.total > 0
+    );
 
-  // FIR: 파4/파5 홀에서만 FW 체크 집계 (분모는 파4+파5 홀수 합)
+  const includedRoundIds: string[] = [];
+  const totals: number[] = [];
+
+  // aggregated sums (new schema)
   let firHit = 0;
   let firTotal = 0;
-  try {
-    const rounds = await Promise.all(fullRoundIds.map((id) => fetchRound(id)));
-    await Promise.all(
-      rounds.map(async (round, idx) => {
-        if (!round?.golfCourseId || !round.frontCourseId) return;
-        try {
-          const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
-          const backMap = round.backCourseId
-            ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
-            : new Map<string, GolfCourseHoleInput>();
-          const holes = fullScores[idx] ?? {};
-          for (const no of HOLE_NOS) {
-            const par = getParForHole(no, frontMap, backMap);
-            if (par !== 4 && par !== 5) continue;
-            firTotal += 1;
-            if (holes[no]?.fairway === true) firHit += 1;
-          }
-        } catch {
-          // 코스/par 조회 실패한 라운드는 FIR 집계에서 제외
-        }
-      })
-    );
-  } catch {
-    // rounds 조회 실패 시 FIR은 null 처리
+  let girHit = 0;
+  let girTotal = 0;
+  let pprTotalPutts = 0;
+
+  // missing aggregates -> fallback: holes 문서 조회 + 계산
+  const fallbackCandidates: Array<{ roundId: string; total: number }> = [];
+
+  for (const { roundId, p } of confirmed) {
+    if (
+      typeof p.totalPutts === 'number' &&
+      typeof p.girHitCount === 'number' &&
+      typeof p.girTotalCount === 'number' &&
+      typeof p.firHitCount === 'number' &&
+      typeof p.firTotalCount === 'number'
+    ) {
+      includedRoundIds.push(roundId);
+      totals.push(p.total);
+
+      pprTotalPutts += p.totalPutts;
+      girHit += p.girHitCount;
+      girTotal += p.girTotalCount;
+      firHit += p.firHitCount;
+      firTotal += p.firTotalCount;
+    } else {
+      fallbackCandidates.push({ roundId, total: p.total });
+    }
   }
 
-  const fir = firTotal > 0 ? Math.round((firHit / firTotal) * 1000) / 10 : null;
+  if (fallbackCandidates.length > 0) {
+    if (isDev) console.log('[stats] fallbackCandidates', { uid, count: fallbackCandidates.length });
+    const fallbackResults = await mapWithConcurrency(
+      fallbackCandidates,
+      5,
+      async (cand) => {
+        const holes = await fetchRoundScore(cand.roundId, uid);
+        const isFull18 = HOLE_NOS.every((no) => holes[no] != null);
+        if (!isFull18) return null;
 
-  return {
-    roundIds: fullRoundIds,
-    totals: fullTotals,
-    scores: fullScores,
+        // GIR / PPR
+        const totalPutts = HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0);
+        let localGirHit = 0;
+        let localGirTotal = 0;
+        for (const no of HOLE_NOS) {
+          const h = holes[no];
+          if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
+            localGirTotal += 1;
+            if (h.strokes - h.putts <= 2) localGirHit += 1;
+          }
+        }
+
+        // FIR (par4/5 + fairway=true)
+        let localFirHit = 0;
+        let localFirTotal = 0;
+        let firComputed = false;
+        try {
+          const round = await fetchRound(cand.roundId);
+          if (round?.golfCourseId && round.frontCourseId) {
+            const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
+            const backMap = round.backCourseId
+              ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
+              : new Map<string, GolfCourseHoleInput>();
+            for (const no of HOLE_NOS) {
+              const par = getParForHole(no, frontMap, backMap);
+              if (par !== 4 && par !== 5) continue;
+              localFirTotal += 1;
+              if (holes[no]?.fairway === true) localFirHit += 1;
+            }
+              firComputed = true;
+          }
+        } catch {
+          // 코스/par 조회 실패 시 FIR은 제외
+        }
+
+          // 기존 라운드에 대해 backfill: 다음 HomeScreen 로딩부터 holes 조회를 줄입니다.
+          try {
+            const participantRef = firestore()
+              .collection(ROUNDS_COLLECTION)
+              .doc(cand.roundId)
+              .collection(PARTICIPANTS)
+              .doc(uid);
+
+            await participantRef.set(
+              {
+                totalPutts,
+                girHitCount: localGirHit,
+                girTotalCount: localGirTotal,
+                // FIR 계산 실패해도 0으로 backfill 하면 다음 Home 로딩에서 fallback(holes 조회)을 피할 수 있습니다.
+                firHitCount: localFirHit,
+                firTotalCount: localFirTotal,
+                updatedAt: firestore.Timestamp.now(),
+              },
+              { merge: true }
+            );
+
+            participantCache.delete(cacheKeyParticipant(cand.roundId, uid));
+          } catch {
+            // 권한/네트워크 이슈로 backfill 실패해도 사용자 체감 계산은 계속 진행합니다.
+            if (isDev) console.warn('[stats] backfill participant failed', { uid, roundId: cand.roundId });
+          }
+
+        return {
+          roundId: cand.roundId,
+          total: cand.total,
+          totalPutts,
+          girHit: localGirHit,
+          girTotal: localGirTotal,
+          firHit: localFirHit,
+          firTotal: localFirTotal,
+          firComputed,
+        };
+      }
+    );
+
+    for (const r of fallbackResults) {
+      if (!r) continue;
+      includedRoundIds.push(r.roundId);
+      totals.push(r.total);
+
+      pprTotalPutts += r.totalPutts;
+      girHit += r.girHit;
+      girTotal += r.girTotal;
+      if (r.firComputed) {
+        firHit += r.firHit;
+        firTotal += r.firTotal;
+      }
+    }
+  }
+
+  const roundCount = includedRoundIds.length;
+  const fir = firTotal > 0 ? Math.round((firHit / firTotal) * 1000) / 10 : null;
+  const gir = girTotal > 0 ? Math.round((girHit / girTotal) * 1000) / 10 : null;
+  const ppr = roundCount > 0 ? Math.round((pprTotalPutts / roundCount) * 10) / 10 : null;
+
+  const result: UserConfirmedRoundStats = {
+    roundIds: includedRoundIds,
+    totals,
     fir,
+    gir,
+    ppr,
   };
+
+  // Materialized View: HomeScreen은 해당 doc만 1회 read해서 holes 조회를 피합니다.
+  try {
+    await firestore()
+      .collection(USERS_COLLECTION)
+      .doc(uid)
+      .collection(USER_STATS_COLLECTION)
+      .doc(CONFIRMED_ROUND_STATS_DOC_ID)
+      .set(
+        {
+          roundIds: includedRoundIds,
+          totals,
+          fir,
+          gir,
+          ppr,
+          updatedAt: firestore.Timestamp.now(),
+        },
+        { merge: true }
+      );
+    if (isDev) {
+      console.log('[stats] confirmedRoundStats doc written', {
+        uid,
+        roundCount: includedRoundIds.length,
+      });
+    }
+  } catch {
+    // 통계 doc write 실패해도 계산 결과는 반환합니다.
+    if (isDev) console.warn('[stats] confirmedRoundStats doc write failed', { uid });
+  }
+
+  userConfirmedRoundStatsCache.set(uid, {
+    expiresAt: Date.now() + USER_CONFIRMED_ROUND_STATS_CACHE_TTL_MS,
+    value: result,
+  });
+
+  return result;
 }
 
 /**
@@ -563,8 +847,9 @@ function getBirdieParBogeyCounts(
  * 버디/파/보기는 홀별 toPar(-1/0/+1) 합계. FW%는 페어웨이 안착율.
  */
 export async function fetchUserRoundRecords(uid: string): Promise<RoundRecordRow[]> {
-  const { roundIds, totals, scores } = await fetchUserConfirmedRoundStats(uid);
+  const { roundIds, totals } = await fetchUserConfirmedRoundStats(uid);
   if (roundIds.length === 0) return [];
+  const scores = await mapWithConcurrency(roundIds, 5, (roundId) => fetchRoundScore(roundId, uid));
   const rounds = await Promise.all(roundIds.map((id) => fetchRound(id)));
   const indices = roundIds.map((_, i) => i);
   indices.sort((a, b) => {
@@ -643,19 +928,36 @@ export async function fetchRoundScore(
   roundId: string,
   uid: string
 ): Promise<Record<string, HoleScoreData>> {
-  const doc = await firestore()
-    .collection(ROUNDS_COLLECTION)
-    .doc(roundId)
-    .collection(SCORES)
-    .doc(uid)
-    .get();
-  if (!doc.exists || !doc.data()?.holes) return {};
-  const holes = doc.data()!.holes as Record<string, unknown>;
-  const result: Record<string, HoleScoreData> = {};
-  Object.entries(holes).forEach(([no, val]) => {
-    result[no] = parseHoleScore(val);
-  });
-  return result;
+  const key = cacheKeyScore(roundId, uid);
+  const cached = scoreCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = scoreInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    const doc = await firestore()
+      .collection(ROUNDS_COLLECTION)
+      .doc(roundId)
+      .collection(SCORES)
+      .doc(uid)
+      .get();
+    if (!doc.exists || !doc.data()?.holes) return {};
+    const holes = doc.data()!.holes as Record<string, unknown>;
+    const result: Record<string, HoleScoreData> = {};
+    Object.entries(holes).forEach(([no, val]) => {
+      result[no] = parseHoleScore(val);
+    });
+    return result;
+  })();
+
+  scoreInFlight.set(key, promise);
+  try {
+    const value = await promise;
+    scoreCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+    return value;
+  } finally {
+    scoreInFlight.delete(key);
+  }
 }
 
 /**
@@ -686,6 +988,9 @@ export async function saveRoundScore(
       { holes: payload, updatedAt: firestore.Timestamp.now() },
       { merge: true }
     );
+
+  // Score 데이터가 갱신되므로 캐시를 즉시 무효화합니다.
+  scoreCache.delete(cacheKeyScore(roundId, uid));
 }
 
 const HOLE_NOS_FRONT = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -709,6 +1014,43 @@ export async function confirmRoundScore(
   const now = firestore.Timestamp.now();
   const { totalOut, totalIn, total } = computeTotals(holes);
 
+  // GIR / PPR: strokes & putts만으로 계산 가능
+  const totalPutts = HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0);
+  let girHitCount = 0;
+  let girTotalCount = 0;
+  for (const no of HOLE_NOS) {
+    const h = holes[no];
+    if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
+      girTotalCount += 1;
+      if (h.strokes - h.putts <= 2) girHitCount += 1;
+    }
+  }
+
+  // FIR: par 4/5 + fairway=true
+  let firHitCount = 0;
+  let firTotalCount = 0;
+  try {
+    const round = await fetchRound(roundId);
+    if (round?.golfCourseId && round.frontCourseId) {
+      const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
+      const backMap = round.backCourseId
+        ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
+        : new Map<string, GolfCourseHoleInput>();
+      let localFirHit = 0;
+      let localFirTotal = 0;
+      for (const no of HOLE_NOS) {
+        const par = getParForHole(no, frontMap, backMap);
+        if (par !== 4 && par !== 5) continue;
+        localFirTotal += 1;
+        if (holes[no]?.fairway === true) localFirHit += 1;
+      }
+      firHitCount = localFirHit;
+      firTotalCount = localFirTotal;
+    }
+  } catch {
+    // FIR 집계 실패 시 HomeScreen에서 fallback(기존 holes 계산)로 처리
+  }
+
   await saveRoundScore(roundId, uid, holes);
 
   const participantRef = db.collection(ROUNDS_COLLECTION).doc(roundId).collection(PARTICIPANTS).doc(uid);
@@ -718,11 +1060,25 @@ export async function confirmRoundScore(
       totalOut,
       totalIn,
       total,
+      totalPutts,
+      girHitCount,
+      girTotalCount,
+      firHitCount,
+      firTotalCount,
       scoreConfirmedAt: now,
       updatedAt: now,
     },
     { merge: true }
   );
+
+  // 확정 시 participant 데이터가 바뀌므로 캐시 무효화가 필요합니다.
+  participantCache.delete(cacheKeyParticipant(roundId, uid));
+  roundCache.delete(cacheKeyRound(roundId));
+  userConfirmedRoundStatsCache.delete(uid);
+
+  // 확정 직후 HomeScreen 통계를 Materialized View로 갱신합니다.
+  // UI 흐름을 늦추지 않기 위해 백그라운드로 수행합니다.
+  void fetchUserConfirmedRoundStats(uid, { forceRecompute: true }).catch(() => {});
 
   const roundRef = db.collection(ROUNDS_COLLECTION).doc(roundId);
   const roundSnap = await roundRef.get();

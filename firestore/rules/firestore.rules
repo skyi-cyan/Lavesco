@@ -110,6 +110,13 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
+      
+      // HomeScreen 성능 최적화를 위한 materialized stats doc
+      // users/{uid}/userStats/confirmedRoundStats
+      match /userStats/{docId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if request.auth != null && request.auth.uid == uid;
+      }
       // 내 라운드 ID 목록 (라운드 생성/참가 시 기록)
       match /roundIds/{roundId} {
         allow read, write: if request.auth != null && request.auth.uid == uid;

@@ -1,14 +1,15 @@
 import React from 'react';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { HomeScreen } from '../features/home/HomeScreen';
-import { RoundStack } from './RoundStack';
+import { RoundStack, type RoundStackParamList } from './RoundStack';
 import { CourseStack } from './CourseStack';
 import { ProfileStack } from './ProfileStack';
 
 export type MainTabParamList = {
   Home: undefined;
-  Round: undefined;
+  Round: NavigatorScreenParams<RoundStackParamList>;
   Course: undefined;
   Profile: undefined;
 };

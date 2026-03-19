@@ -12,6 +12,15 @@ const HOLES = 'holes';
 
 const defaultDistances: Record<string, number> = { black: 0, blue: 0, white: 0, red: 0 };
 
+// `fetchHolesUnderCourse` 호출이 반복되면 FIR 계산/라운드 상세 화면에서 체감 지연이 생깁니다.
+// 코스 홀 데이터는 자주 바뀌지 않으므로 간단한 메모리 캐시를 둡니다.
+const HOLES_UNDER_COURSE_CACHE_TTL_MS = 60 * 60 * 1000; // 1시간
+const holesUnderCourseCache = new Map<
+  string,
+  { expiresAt: number; value: Map<string, GolfCourseHoleInput> }
+>();
+const holesUnderCourseInFlight = new Map<string, Promise<Map<string, GolfCourseHoleInput>>>();
+
 /**
  * admin-web에서 등록한 골프장 목록 조회 (로그인 사용자만 읽기 가능)
  * 지역·이름 순 정렬
@@ -82,6 +91,13 @@ export async function fetchHolesUnderCourse(
   golfCourseId: string,
   courseId: string
 ): Promise<Map<string, GolfCourseHoleInput>> {
+  const key = `${golfCourseId}:${courseId}`;
+  const cached = holesUnderCourseCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const inFlight = holesUnderCourseInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
   const snapshot = await firestore()
     .collection(GOLF_COURSES_COLLECTION)
     .doc(golfCourseId)
@@ -89,19 +105,31 @@ export async function fetchHolesUnderCourse(
     .doc(courseId)
     .collection(HOLES)
     .get();
-  const map = new Map<string, GolfCourseHoleInput>();
-  snapshot.docs.forEach((d) => {
-    const data = d.data();
-    const dist = { ...defaultDistances };
-    TEE_KEYS.forEach((k) => {
-      if (typeof data.distances?.[k] === 'number') dist[k] = data.distances[k];
+    const map = new Map<string, GolfCourseHoleInput>();
+    snapshot.docs.forEach((d) => {
+      const data = d.data();
+      const dist = { ...defaultDistances };
+      TEE_KEYS.forEach((k) => {
+        if (typeof data.distances?.[k] === 'number') dist[k] = data.distances[k];
+      });
+      map.set(d.id, {
+        par: data.par ?? 4,
+        handicapIndex: data.handicapIndex ?? 0,
+        order: data.order ?? parseInt(d.id, 10),
+        distances: data.distances ?? dist,
+      });
     });
-    map.set(d.id, {
-      par: data.par ?? 4,
-      handicapIndex: data.handicapIndex ?? 0,
-      order: data.order ?? parseInt(d.id, 10),
-      distances: data.distances ?? dist,
+    holesUnderCourseCache.set(key, {
+      expiresAt: Date.now() + HOLES_UNDER_COURSE_CACHE_TTL_MS,
+      value: map,
     });
-  });
-  return map;
+    return map;
+  })();
+
+  holesUnderCourseInFlight.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    holesUnderCourseInFlight.delete(key);
+  }
 }

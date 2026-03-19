@@ -40,8 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const loadProfile = useCallback(async (uid: string) => {
     try {
       const doc = await firestore().collection(USERS_COLLECTION).doc(uid).get();
-      if (doc.exists && doc.data()) {
-        setProfile(userProfileFromMap(doc.data() as Record<string, unknown>));
+      if (!doc.exists) {
+        setProfile(null);
+        return;
+      }
+      const data = doc.data();
+      if (data) {
+        setProfile(userProfileFromMap(data as Record<string, unknown>));
       } else {
         setProfile(null);
       }

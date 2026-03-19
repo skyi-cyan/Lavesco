@@ -104,8 +104,9 @@ export const authService = {
       const appleAuthRequestResponse = await appleAuth.performRequest({
         requestedOperation: appleAuth.Operation.LOGIN,
         requestedScopes: [
-          appleAuth.AppleAuthenticationScope.EMAIL,
-          appleAuth.AppleAuthenticationScope.FULL_NAME,
+          // FULL_NAME first is recommended by the upstream library.
+          appleAuth.Scope.FULL_NAME,
+          appleAuth.Scope.EMAIL,
         ],
       });
       const { identityToken, fullName } = appleAuthRequestResponse;
@@ -163,7 +164,7 @@ async function createUserProfile(
     nickname: options.nickname ?? null,
     photoURL: user.photoURL ?? null,
     provider: options.provider,
-    handicap: null,
+    handicap: undefined,
     defaultTee: null,
     address: null,
     dateOfBirth: null,

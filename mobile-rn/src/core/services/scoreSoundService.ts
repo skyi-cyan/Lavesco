@@ -177,7 +177,9 @@ export function playScoreSound(
       return;
     }
 
-    const Sound = SoundModule.default;
+    // `react-native-sound` export shape varies depending on bundler/TS config.
+    // Use `.default ?? module` to support both module styles.
+    const Sound: any = (SoundModule as any).default ?? SoundModule;
     Sound.setCategory('Playback', true);
 
     // Android: res/raw/ 아래에 {fileName}.mp3 배치. 리소스 ID는 확장자 제외(소문자).

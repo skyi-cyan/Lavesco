@@ -28,12 +28,35 @@ const DEFAULT_TEE_OPTIONS: { value: string; label: string }[] = [
   { value: 'red', label: 'Red' },
 ];
 
+/** Firebase Storage 등으로 당분간 사진 변경·삭제 비활성화. true 로 바꾸면 다시 사용 */
+const PROFILE_PHOTO_EDIT_ENABLED = false;
+
 /** 숫자만 추출 후 YYYY-MM-DD 형태로 하이픈 자동 삽입 (최대 8자리) */
 function formatDateOfBirthInput(text: string): string {
   const digits = text.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 4) return digits;
   if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
   return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+}
+
+/**
+ * Promise.race + 타임아웃. 한쪽이 먼저 끝나면 `clearTimeout`으로 타이머를 취소해,
+ * 나중에 타임아웃 Promise가 reject 되며 뜨는 Uncaught (in promise)를 막습니다.
+ */
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  });
 }
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileEdit'>;
@@ -65,29 +88,49 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
   const photoUrl = profile?.photoURL ?? null;
 
   const handleChangePhoto = async () => {
-    if (!user?.uid || photoUploading) return;
+    if (!PROFILE_PHOTO_EDIT_ENABLED || !user?.uid || photoUploading) return;
     try {
       const result = await launchImageLibrary({
         mediaType: 'photo',
         maxWidth: 512,
         maxHeight: 512,
+        quality: 0.9,
+        // putFile 실패·object-not-found 시 재시도용 (file:// 우선 업로드)
+        includeBase64: true,
       });
-      if (result.didCancel || !result.assets?.[0]?.uri) return;
-      const uri = result.assets[0].uri;
+      if (result.didCancel || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const uri = asset.uri;
+      if (!uri) return;
       setPhotoUploading(true);
       setError(null);
       const uploadPromise = (async () => {
-        const downloadUrl = await uploadProfilePhoto(user.uid, uri);
+        const downloadUrl = await uploadProfilePhoto(user.uid, {
+          localUri: uri,
+          base64: asset.base64,
+          mimeType: asset.type,
+        });
         await updateUserProfile(user.uid, { photoURL: downloadUrl });
       })();
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('사진 업로드 시간이 초과되었습니다.')), PHOTO_UPLOAD_TIMEOUT_MS)
-      );
-      await Promise.race([uploadPromise, timeoutPromise]);
-      await refreshProfile();
+      try {
+        await raceWithTimeout(
+          uploadPromise,
+          PHOTO_UPLOAD_TIMEOUT_MS,
+          '사진 업로드 시간이 초과되었습니다.'
+        );
+        await refreshProfile().catch(() => {});
+      } catch (raceErr) {
+        // 타임아웃으로 먼저 끝난 뒤 업로드가 뒤늦게 실패하면 미처리 rejection 방지
+        void uploadPromise.catch(() => {});
+        throw raceErr;
+      }
     } catch (e) {
       const err = e as Error & { code?: string };
-      const message = err?.message ?? '사진 업로드에 실패했습니다.';
+      let message = err?.message ?? '사진 업로드에 실패했습니다.';
+      if (typeof message === 'string' && message.includes('storage/object-not-found')) {
+        message =
+          '스토리지에 파일이 생성되지 않았습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.';
+      }
       setError(message);
       Alert.alert('사진 업로드 실패', message);
     } finally {
@@ -96,7 +139,7 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handleRemovePhoto = async () => {
-    if (!user?.uid || saving || photoUploading) return;
+    if (!PROFILE_PHOTO_EDIT_ENABLED || !user?.uid || saving || photoUploading) return;
     Alert.alert('사진 삭제', '프로필 사진을 삭제하시겠습니까?', [
       { text: '취소', style: 'cancel' },
       {
@@ -124,6 +167,7 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
     if (!user?.uid) return;
     setError(null);
     setSaving(true);
+    let savePromise: Promise<void> | undefined;
     try {
       const handicapNum = handicap.trim() === '' ? null : parseFloat(handicap.trim());
       if (handicap.trim() !== '' && (Number.isNaN(handicapNum as number) || (handicapNum as number) < 0 || (handicapNum as number) > 54)) {
@@ -137,22 +181,24 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
         setSaving(false);
         return;
       }
-      const savePromise = updateUserProfile(user.uid, {
+      savePromise = updateUserProfile(user.uid, {
         nickname: nickname.trim() || null,
         handicap: handicapNum,
         defaultTee: defaultTee || null,
         address: address.trim() || null,
         dateOfBirth: dobTrimmed || null,
       });
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('저장 시간이 초과되었습니다. 네트워크를 확인해주세요.')), SAVE_TIMEOUT_MS);
-      });
-      await Promise.race([savePromise, timeoutPromise]);
+      await raceWithTimeout(
+        savePromise,
+        SAVE_TIMEOUT_MS,
+        '저장 시간이 초과되었습니다. 네트워크를 확인해주세요.'
+      );
 
       setSaving(false);
       navigation.goBack();
       refreshProfile().catch(() => {});
     } catch (e) {
+      void savePromise?.catch(() => {});
       setSaving(false);
       const err = e as Error & { code?: string };
       let message = err?.message ?? '저장에 실패했습니다.';
@@ -198,9 +244,12 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
             </View>
             <View style={styles.photoButtons}>
               <TouchableOpacity
-                style={[styles.photoButton, photoUploading && styles.photoButtonDisabled]}
+                style={[
+                  styles.photoButton,
+                  (!PROFILE_PHOTO_EDIT_ENABLED || photoUploading) && styles.photoButtonDisabled,
+                ]}
                 onPress={handleChangePhoto}
-                disabled={photoUploading}
+                disabled={!PROFILE_PHOTO_EDIT_ENABLED || photoUploading}
                 activeOpacity={0.8}
               >
                 <Text style={styles.photoButtonText}>
@@ -209,13 +258,21 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
               </TouchableOpacity>
               {photoUrl ? (
                 <TouchableOpacity
-                  style={[styles.photoButtonOutlined, (saving || photoUploading) && styles.photoButtonDisabled]}
+                  style={[
+                    styles.photoButtonOutlined,
+                    (!PROFILE_PHOTO_EDIT_ENABLED || saving || photoUploading) && styles.photoButtonDisabled,
+                  ]}
                   onPress={handleRemovePhoto}
-                  disabled={saving || photoUploading}
+                  disabled={!PROFILE_PHOTO_EDIT_ENABLED || saving || photoUploading}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.photoButtonOutlinedText}>사진 삭제</Text>
                 </TouchableOpacity>
+              ) : null}
+              {!PROFILE_PHOTO_EDIT_ENABLED ? (
+                <Text style={styles.photoDisabledHint}>
+                  사진 변경은 일시적으로 사용할 수 없습니다.
+                </Text>
               ) : null}
             </View>
           </View>
@@ -347,9 +404,15 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
     alignSelf: 'flex-start',
   },
-  photoButtonDisabled: { opacity: 0.6 },
+  photoButtonDisabled: { opacity: 0.45 },
   photoButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   photoButtonOutlinedText: { color: '#666', fontSize: 14 },
+  photoDisabledHint: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+    lineHeight: 18,
+  },
   section: { marginBottom: 20 },
   label: {
     fontSize: 14,

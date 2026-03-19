@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  Image,
   ImageBackground,
   TouchableOpacity,
   ActivityIndicator,
@@ -17,9 +18,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchUserConfirmedRoundStats,
-  computeFIR,
-  computeGIR,
-  computePPR,
 } from '../../core/services/roundService';
 import type { MainTabParamList } from '../../app/MainTabs';
 import type { RoundStackParamList } from '../../app/RoundStack';
@@ -31,6 +29,56 @@ type HomeNav = CompositeNavigationProp<
   NativeStackNavigationProp<RoundStackParamList>
 >;
 
+/** 헤더 우측 프로필(사진 + 닉네임) */
+function HomeHeaderRight(): React.JSX.Element {
+  const { profile, user } = useAuth();
+  const nickname =
+    profile?.nickname ?? profile?.displayName ?? user?.email ?? '사용자';
+  const photoURL = profile?.photoURL ?? null;
+  return (
+    <View style={headerStyles.wrap}>
+      {photoURL ? (
+        <Image source={{ uri: photoURL }} style={headerStyles.avatar} />
+      ) : (
+        <View style={headerStyles.avatarPlaceholder}>
+          <Ionicons name="person" size={18} color="#888" />
+        </View>
+      )}
+      <Text style={headerStyles.nickname} numberOfLines={1}>
+        {nickname}
+      </Text>
+    </View>
+  );
+}
+
+const headerStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+    gap: 8,
+    maxWidth: 160,
+  },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  avatarPlaceholder: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#e5e5e5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  nickname: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+});
+
 export function HomeScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNav>();
@@ -38,31 +86,34 @@ export function HomeScreen(): React.JSX.Element {
   const displayName =
     profile?.nickname ?? profile?.displayName ?? user?.email ?? '사용자';
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => <HomeHeaderRight />,
+    });
+  }, [navigation]);
+
   const [roundStats, setRoundStats] = useState<{
     totals: number[];
-    scores: Record<string, import('../../core/types/round').HoleScoreData>[];
     fir: number | null;
-  }>({ totals: [], scores: [], fir: null });
+    gir: number | null;
+    ppr: number | null;
+  }>({ totals: [], fir: null, gir: null, ppr: null });
   const [totalsLoading, setTotalsLoading] = useState(true);
 
   const loadStats = useCallback(async () => {
     if (!user?.uid) {
-      setRoundStats({ totals: [], scores: [] });
+      setRoundStats({ totals: [], fir: null, gir: null, ppr: null });
       setTotalsLoading(false);
       return;
     }
     setTotalsLoading(true);
     try {
-      const { totals, scores, fir } = await fetchUserConfirmedRoundStats(user.uid);
-      setRoundStats({ totals, scores, fir });
+      const { totals, fir, gir, ppr } = await fetchUserConfirmedRoundStats(user.uid);
+      setRoundStats({ totals, fir, gir, ppr });
     } finally {
       setTotalsLoading(false);
     }
   }, [user?.uid]);
-
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,14 +122,12 @@ export function HomeScreen(): React.JSX.Element {
     }, [loadStats])
   );
 
-  const { totals, scores, fir } = roundStats;
+  const { totals, fir, gir, ppr } = roundStats;
   const avgScore =
     totals.length > 0
       ? Math.round((totals.reduce((a, b) => a + b, 0) / totals.length) * 10) / 10
       : null;
   const minScore = totals.length > 0 ? Math.min(...totals) : null;
-  const gir = computeGIR(scores);
-  const ppr = computePPR(scores);
 
   const goCreate = () => navigation.navigate('Round', { screen: 'RoundCreate' });
   const goJoin = () => navigation.navigate('Round', { screen: 'RoundJoin' });
