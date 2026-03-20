@@ -11,6 +11,7 @@ import {
   TextInput,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { fetchGolfCourses } from '../../core/services/courseService';
@@ -18,12 +19,14 @@ import type { CourseStackParamList } from '../../app/CourseStack';
 import type { GolfCourse } from '../../core/types/course';
 import { REGION_GROUPS, matchRegionGroup } from '../../core/constants/regions';
 import type { RegionGroupId } from '../../core/constants/regions';
+import { CourseAddRequestFooter } from '../shared/CourseAddRequestFooter';
 
 const DEFAULT_REGION: RegionGroupId = '수도권';
 
 type CourseListNav = NativeStackNavigationProp<CourseStackParamList, 'CourseList'>;
 
 export function CourseListScreen(): React.JSX.Element {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<CourseListNav>();
   const [list, setList] = useState<GolfCourse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,48 +153,51 @@ export function CourseListScreen(): React.JSX.Element {
     </View>
   );
 
-  if (loading && list.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0a0" />
-        <Text style={styles.loadingText}>골프장 목록 불러오는 중...</Text>
-      </View>
-    );
-  }
-
-  if (error && list.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => load()}>
-          <Text style={styles.retryText}>다시 시도</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const showLoadingInitial = loading && list.length === 0;
+  const showErrorInitial = !!error && list.length === 0;
 
   return (
     <View style={styles.container}>
-      {searchAndFilterHeader}
-      <FlatList
-        data={filteredList}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        contentContainerStyle={
-          filteredList.length === 0 ? styles.emptyList : styles.listContent
-        }
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0a0']} />
-        }
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>
-            {list.length === 0
-              ? '등록된 골프장이 없습니다.\nadmin-web에서 골프장을 추가해 보세요.'
-              : '검색·지역 조건에 맞는 골프장이 없습니다.'}
-          </Text>
-        }
-        keyboardShouldPersistTaps="handled"
-      />
+      {showLoadingInitial ? (
+        <View style={styles.fillCenter}>
+          <ActivityIndicator size="large" color="#0a0" />
+          <Text style={styles.loadingText}>골프장 목록 불러오는 중...</Text>
+        </View>
+      ) : showErrorInitial ? (
+        <View style={styles.fillCenter}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => load()}>
+            <Text style={styles.retryText}>다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          {searchAndFilterHeader}
+          <FlatList
+            style={styles.listFlex}
+            data={filteredList}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={
+              filteredList.length === 0 ? styles.emptyList : styles.listContent
+            }
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0a0']} />
+            }
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                {list.length === 0
+                  ? '등록된 골프장이 없습니다.\nadmin-web에서 골프장을 추가해 보세요.'
+                  : '검색·지역 조건에 맞는 골프장이 없습니다.'}
+              </Text>
+            }
+            keyboardShouldPersistTaps="handled"
+          />
+        </>
+      )}
+      <View style={[styles.courseFooterBar, { paddingBottom: 0 + insets.bottom }]}>
+        <CourseAddRequestFooter />
+      </View>
     </View>
   );
 }
@@ -200,6 +206,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  fillCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  listFlex: {
+    flex: 1,
+  },
+  courseFooterBar: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    backgroundColor: '#f5f5f5',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e5e5',
   },
   header: {
     backgroundColor: '#f5f5f5',
@@ -266,12 +288,6 @@ const styles = StyleSheet.create({
   },
   regionChipTextSelected: {
     color: '#fff',
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
   },
   loadingText: {
     marginTop: 12,

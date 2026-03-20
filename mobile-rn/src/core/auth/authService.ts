@@ -52,7 +52,8 @@ export const authService = {
     email: string,
     password: string,
     nickname: string,
-    terms: TermsAgreement
+    terms: TermsAgreement,
+    defaultTee = 'white'
   ): Promise<FirebaseAuthTypes.UserCredential> {
     try {
       const credential = await auth().createUserWithEmailAndPassword(
@@ -65,6 +66,7 @@ export const authService = {
           nickname,
           provider: 'email',
           terms,
+          defaultTee,
         });
       }
       return credential;
@@ -154,6 +156,7 @@ async function createUserProfile(
     provider: string;
     terms?: TermsAgreement;
     displayName?: string | null;
+    defaultTee?: string | null;
   }
 ): Promise<void> {
   const now = new Date();
@@ -165,7 +168,7 @@ async function createUserProfile(
     photoURL: user.photoURL ?? null,
     provider: options.provider,
     handicap: undefined,
-    defaultTee: null,
+    defaultTee: options.defaultTee ?? 'white',
     address: null,
     dateOfBirth: null,
     termsAgreement: options.terms

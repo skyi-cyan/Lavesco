@@ -7,13 +7,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
 import { grossStrokesForHole, playScoreSound } from '../../core/services/scoreSoundService';
-import { fetchHolesUnderCourse } from '../../core/services/courseService';
+import { fetchHolesUnderCourse, fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
 import type { Round } from '../../core/types/round';
 import type { RoundParticipant } from '../../core/types/round';
 import type { HoleScoreData } from '../../core/types/round';
@@ -30,6 +31,14 @@ type ViewNine = 'front' | 'back';
 
 type Props = NativeStackScreenProps<RoundStackParamList, 'RoundDetail'>;
 
+function normalizeExternalUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  return `https://${trimmed}`;
+}
+
 export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { roundId } = route.params;
   const { user } = useAuth();
@@ -38,6 +47,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   const [scoresByUid, setScoresByUid] = useState<Record<string, Record<string, HoleScoreData>>>({});
   const [frontHoleInfo, setFrontHoleInfo] = useState<Record<string, GolfCourseHoleInput>>({});
   const [backHoleInfo, setBackHoleInfo] = useState<Record<string, GolfCourseHoleInput>>({});
+  const [courseUrlById, setCourseUrlById] = useState<Record<string, string>>({});
   const [viewNine, setViewNine] = useState<ViewNine>('front');
   const [currentHoleIndex, setCurrentHoleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -61,6 +71,20 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       ? (round?.frontCourseName || round?.golfCourseName || '-')
       : (round?.backCourseName || round?.golfCourseName || '-');
   const hasBackCourse = !!(round?.backCourseId && (round?.backCourseName || round?.golfCourseName));
+  const currentCourseUrl = viewNine === 'front'
+    ? (round?.frontCourseId ? courseUrlById[round.frontCourseId] : '')
+    : (round?.backCourseId ? courseUrlById[round.backCourseId] : '');
+  const hasCurrentCourseUrl = !!(currentCourseUrl && currentCourseUrl.trim());
+
+  const openCourseView = async () => {
+    const normalized = normalizeExternalUrl(currentCourseUrl ?? '');
+    if (!normalized) return;
+    try {
+      await Linking.openURL(normalized);
+    } catch {
+      Alert.alert('열기 실패', '코스 URL을 열지 못했습니다.');
+    }
+  };
 
   /** 현재 홀 변경 시 draft를 저장된 값(또는 기본값)으로 동기화. 스코어 미입력 시 par 기준 0으로 둠. */
   useEffect(() => {
@@ -112,6 +136,21 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       ) {
         loadRetriedRef.current = true;
         setTimeout(() => load(), 500);
+      }
+
+      if (roundData?.golfCourseId) {
+        try {
+          const courseList = await fetchCoursesUnderGolfCourse(roundData.golfCourseId);
+          const urlMap: Record<string, string> = {};
+          courseList.forEach((c) => {
+            if (c.courseUrl) urlMap[c.id] = c.courseUrl;
+          });
+          setCourseUrlById(urlMap);
+        } catch {
+          setCourseUrlById({});
+        }
+      } else {
+        setCourseUrlById({});
       }
 
       if (roundData?.golfCourseId && roundData?.frontCourseId) {
@@ -374,25 +413,56 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         </TouchableOpacity>
       </View>
 
-      {/* 코스명(탭 시 전반/후반 전환) · Par · 거리 (한 줄) */}
-      <View style={styles.holeInfoLine}>
-        <TouchableOpacity
-          style={styles.holeInfoCourseWrap}
-          onPress={toggleViewNine}
-          disabled={!hasBackCourse}
-          activeOpacity={hasBackCourse ? 0.7 : 1}
-        >
-          <Text style={[styles.holeInfoCourse, !hasBackCourse && styles.holeInfoCourseDisabled]} numberOfLines={1}>
-            {courseNameForHole}
-          </Text>
-          {hasBackCourse ? (
-            <Text style={styles.holeInfoCourseHint}>
-              (탭하여 {viewNine === 'front' ? '후반' : '전반'} 코스로 전환)
+      {/* 1줄: 코스명 · Par · 거리 / 2줄: 전환 안내 · 코스 뷰 */}
+      <View style={styles.holeInfoBlock}>
+        <View style={styles.holeInfoRowTop}>
+          <TouchableOpacity
+            style={styles.holeInfoCourseWrap}
+            onPress={toggleViewNine}
+            disabled={!hasBackCourse}
+            activeOpacity={hasBackCourse ? 0.7 : 1}
+          >
+            <Text style={[styles.holeInfoCourse, !hasBackCourse && styles.holeInfoCourseDisabled]} numberOfLines={1}>
+              {courseNameForHole}
             </Text>
-          ) : null}
-        </TouchableOpacity>
-        <Text style={styles.holeInfoPar}>Par {holePar}</Text>
-        <Text style={styles.holeInfoDistance}>{holeDistance > 0 ? `${holeDistance}m` : '-'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.holeInfoPar}>Par {holePar}</Text>
+          <View style={styles.holeInfoRight}>
+            <Text style={styles.holeInfoDistance}>{holeDistance > 0 ? `${holeDistance}m` : '-'}</Text>
+          </View>
+        </View>
+        {(hasBackCourse || hasCurrentCourseUrl) ? (
+          <View
+            style={[
+              styles.holeInfoRowBottom,
+              !hasBackCourse && styles.holeInfoRowBottomAlignEnd,
+            ]}
+          >
+            {hasBackCourse ? (
+              <TouchableOpacity
+                style={styles.holeInfoHintWrap}
+                onPress={toggleViewNine}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.holeInfoCourseHint} numberOfLines={2}>
+                  (탭하여 {viewNine === 'front' ? '후반' : '전반'} 코스로 전환)
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.holeInfoHintWrap} />
+            )}
+            {hasCurrentCourseUrl ? (
+              <TouchableOpacity
+                style={styles.courseViewButton}
+                onPress={openCourseView}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="open-outline" size={14} color="#0a0" />
+                <Text style={styles.courseViewButtonText}>코스 뷰</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {/* SCORE: par 기준 0=par, -1=birdie, -2=eagle, +1=bogey … / PUTT (확정 시 읽기 전용) */}
@@ -701,22 +771,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   holeCircleText: { fontSize: 24, fontWeight: '700', color: '#fff' },
-  holeInfoLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  holeInfoBlock: {
     borderBottomWidth: 2,
     borderBottomColor: '#2196f3',
     paddingBottom: 8,
     paddingHorizontal: 4,
     marginBottom: 4,
   },
-  holeInfoCourseWrap: { flex: 1 },
+  holeInfoRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  holeInfoRowBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    gap: 8,
+  },
+  holeInfoRowBottomAlignEnd: {
+    justifyContent: 'flex-end',
+  },
+  holeInfoHintWrap: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 2,
+  },
+  holeInfoCourseWrap: { flex: 1, minWidth: 0 },
   holeInfoCourse: { fontSize: 18, fontWeight: '600', color: '#1a5f2a' },
   holeInfoCourseDisabled: { color: '#888' },
-  holeInfoCourseHint: { fontSize: 11, color: '#888', marginTop: 2 },
-  holeInfoPar: { fontSize: 28, fontWeight: '800', color: '#c00', textAlign: 'center', marginHorizontal: 12 },
-  holeInfoDistance: { fontSize: 18, fontWeight: '600', color: '#1565c0', textAlign: 'right', flex: 1 },
+  holeInfoCourseHint: { fontSize: 11, color: '#888' },
+  holeInfoRight: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 0,
+  },
+  courseViewButton: {
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    flexShrink: 0,
+  },
+  courseViewButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0a0',
+  },
+  holeInfoPar: { fontSize: 28, fontWeight: '800', color: '#c00', textAlign: 'center', marginHorizontal: 8, flexShrink: 0 },
+  holeInfoDistance: { fontSize: 18, fontWeight: '600', color: '#1565c0', textAlign: 'right', flexShrink: 0 },
   scoreRow: {
     flexDirection: 'row',
     gap: 24,

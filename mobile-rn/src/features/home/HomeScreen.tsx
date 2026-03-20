@@ -16,9 +16,8 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
-import {
-  fetchUserConfirmedRoundStats,
-} from '../../core/services/roundService';
+import { fetchUserConfirmedRoundStats } from '../../core/services/roundService';
+import { CourseAddRequestFooter } from '../shared/CourseAddRequestFooter';
 import type { MainTabParamList } from '../../app/MainTabs';
 import type { RoundStackParamList } from '../../app/RoundStack';
 
@@ -136,7 +135,7 @@ export function HomeScreen(): React.JSX.Element {
     <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: 100 + insets.bottom }]}
+        contentContainerStyle={[styles.content, { paddingBottom: 148 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroWrap}>
@@ -215,7 +214,7 @@ export function HomeScreen(): React.JSX.Element {
         </View>
       </ScrollView>
       {/* 고정 바로가기: 스크롤해도 항상 표시 */}
-      <View style={[styles.shortcutsFixed, { paddingBottom: 12 + insets.bottom }]}>
+      <View style={[styles.shortcutsFixed, { paddingBottom: 0 + insets.bottom }]}>
         <View style={styles.shortcuts}>
           <TouchableOpacity
             style={styles.shortcutBtn}
@@ -238,6 +237,7 @@ export function HomeScreen(): React.JSX.Element {
             <Text style={styles.shortcutLabel}>참여하기</Text>
           </TouchableOpacity>
         </View>
+        <CourseAddRequestFooter style={{ marginTop: 8 }} />
       </View>
     </View>
   );

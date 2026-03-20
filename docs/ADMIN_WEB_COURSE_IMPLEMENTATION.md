@@ -116,3 +116,20 @@
 - **holes 문서 ID**: PRD 권장대로 문자열 `'1'`~`'18'` 사용.
 
 이 문서를 기준으로 관리자 웹 코스 기능을 단계별로 구현하면 됩니다.
+
+---
+
+## 9. 코스 추가 요청 (`courseAddRequests`)
+
+앱 홈 **코스추가 요청하기**로 접수된 요청은 관리자 웹 **대시보드 → 코스 추가 요청**(`/course-requests`)에서 처리합니다.
+
+| 경로 | 필드 | 비고 |
+|------|------|------|
+| **courseAddRequests/{id}** | userId, userEmail, userNickname, golfCourseName, region, details, status, createdAt, updatedAt | 사용자 생성 시 `status: PENDING`, 허용 키만 규칙으로 제한 |
+| (관리자 갱신) | adminReply, repliedAt, createdGolfCourseId, status | `IN_PROGRESS` / `COMPLETED` / `REJECTED` 등 |
+
+배포 시 **Firestore 규칙**과 **복합 인덱스**(`userId` + `createdAt` desc)를 함께 배포하세요.
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```

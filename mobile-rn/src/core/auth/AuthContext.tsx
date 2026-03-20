@@ -18,7 +18,8 @@ type AuthContextValue = AuthState & {
     email: string,
     password: string,
     nickname: string,
-    terms: { serviceTerms: boolean; privacyPolicy: boolean; marketing: boolean }
+    terms: { serviceTerms: boolean; privacyPolicy: boolean; marketing: boolean },
+    defaultTee?: string
   ) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
@@ -30,6 +31,8 @@ type AuthContextValue = AuthState & {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const USERS_COLLECTION = 'users';
+const SUSPENDED_STATUS = 'SUSPENDED';
+const SUSPENDED_MESSAGE = '정지된 계정입니다. 관리자에게 문의해 주세요.';
 
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
@@ -37,21 +40,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadProfile = useCallback(async (uid: string) => {
+  const loadProfile = useCallback(async (uid: string): Promise<{ suspended: boolean }> => {
     try {
       const doc = await firestore().collection(USERS_COLLECTION).doc(uid).get();
       if (!doc.exists) {
         setProfile(null);
-        return;
+        return { suspended: false };
       }
       const data = doc.data();
       if (data) {
+        const status = String(data.status ?? '').toUpperCase();
+        if (status === SUSPENDED_STATUS) {
+          setProfile(null);
+          return { suspended: true };
+        }
         setProfile(userProfileFromMap(data as Record<string, unknown>));
       } else {
         setProfile(null);
       }
+      return { suspended: false };
     } catch {
       setProfile(null);
+      return { suspended: false };
     }
   }, []);
 
@@ -59,7 +69,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     const unsubscribe = authService.onAuthStateChanged(async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        await loadProfile(firebaseUser.uid);
+        const { suspended } = await loadProfile(firebaseUser.uid);
+        if (suspended) {
+          setError(SUSPENDED_MESSAGE);
+          await authService.signOut();
+          setUser(null);
+          setProfile(null);
+        }
       } else {
         setProfile(null);
       }
@@ -71,7 +87,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     setError(null);
     const credential = await authService.signInWithEmail(email, password);
-    if (credential.user) await loadProfile(credential.user.uid);
+    if (credential.user) {
+      const { suspended } = await loadProfile(credential.user.uid);
+      if (suspended) {
+        await authService.signOut();
+        setUser(null);
+        setProfile(null);
+        throw new Error(SUSPENDED_MESSAGE);
+      }
+    }
   }, [loadProfile]);
 
   const signUpWithEmail = useCallback(
@@ -79,14 +103,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       email: string,
       password: string,
       nickname: string,
-      terms: { serviceTerms: boolean; privacyPolicy: boolean; marketing: boolean }
+      terms: { serviceTerms: boolean; privacyPolicy: boolean; marketing: boolean },
+      defaultTee = 'white'
     ) => {
       setError(null);
       const credential = await authService.signUpWithEmail(email, password, nickname, {
         ...terms,
         agreedAt: new Date(),
-      });
-      if (credential.user) await loadProfile(credential.user.uid);
+      }, defaultTee);
+      if (credential.user) {
+        const { suspended } = await loadProfile(credential.user.uid);
+        if (suspended) {
+          await authService.signOut();
+          setUser(null);
+          setProfile(null);
+          throw new Error(SUSPENDED_MESSAGE);
+        }
+      }
     },
     [loadProfile]
   );
@@ -94,13 +127,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const signInWithGoogle = useCallback(async () => {
     setError(null);
     const credential = await authService.signInWithGoogle();
-    if (credential.user) await loadProfile(credential.user.uid);
+    if (credential.user) {
+      const { suspended } = await loadProfile(credential.user.uid);
+      if (suspended) {
+        await authService.signOut();
+        setUser(null);
+        setProfile(null);
+        throw new Error(SUSPENDED_MESSAGE);
+      }
+    }
   }, [loadProfile]);
 
   const signInWithApple = useCallback(async () => {
     setError(null);
     const credential = await authService.signInWithApple();
-    if (credential.user) await loadProfile(credential.user.uid);
+    if (credential.user) {
+      const { suspended } = await loadProfile(credential.user.uid);
+      if (suspended) {
+        await authService.signOut();
+        setUser(null);
+        setProfile(null);
+        throw new Error(SUSPENDED_MESSAGE);
+      }
+    }
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
@@ -113,7 +162,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const clearError = useCallback(() => setError(null), []);
 
   const refreshProfile = useCallback(async () => {
-    if (user?.uid) await loadProfile(user.uid);
+    if (user?.uid) {
+      const { suspended } = await loadProfile(user.uid);
+      if (suspended) {
+        setError(SUSPENDED_MESSAGE);
+        await authService.signOut();
+        setUser(null);
+        setProfile(null);
+      }
+    }
   }, [user?.uid, loadProfile]);
 
   const value: AuthContextValue = {

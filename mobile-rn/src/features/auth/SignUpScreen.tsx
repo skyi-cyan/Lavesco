@@ -23,6 +23,12 @@ import {
 import type { AuthStackParamList } from '../../app/AuthStack';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
+const DEFAULT_TEE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'black', label: 'Black' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'white', label: 'White' },
+  { value: 'red', label: 'Red' },
+];
 
 export function SignUpScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
@@ -32,6 +38,7 @@ export function SignUpScreen(): React.JSX.Element {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
+  const [defaultTee, setDefaultTee] = useState('white');
   const [serviceTerms, setServiceTerms] = useState(false);
   const [privacyPolicy, setPrivacyPolicy] = useState(false);
   const [marketing, setMarketing] = useState(false);
@@ -66,7 +73,7 @@ export function SignUpScreen(): React.JSX.Element {
         serviceTerms,
         privacyPolicy,
         marketing,
-      });
+      }, defaultTee);
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -153,6 +160,30 @@ export function SignUpScreen(): React.JSX.Element {
         />
         {errors.nickname ? <Text style={styles.errorText}>{errors.nickname}</Text> : null}
 
+        <View style={styles.section}>
+          <Text style={styles.label}>기본 티</Text>
+          <View style={styles.teeRow}>
+            {DEFAULT_TEE_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                style={[styles.teeChip, defaultTee === opt.value && styles.teeChipSelected]}
+                onPress={() => setDefaultTee(opt.value)}
+                activeOpacity={0.7}
+                disabled={isLoading}
+              >
+                <Text
+                  style={[
+                    styles.teeChipText,
+                    defaultTee === opt.value && styles.teeChipTextSelected,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         <View style={styles.terms}>
           {checkbox(serviceTerms, () => setServiceTerms((v) => !v), '서비스 이용약관 동의', true)}
           {checkbox(privacyPolicy, () => setPrivacyPolicy((v) => !v), '개인정보 처리방침 동의', true)}
@@ -200,6 +231,28 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: '#c00' },
   errorText: { fontSize: 12, color: '#c00', marginBottom: 12 },
+  section: { marginBottom: 12 },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  teeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  teeChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  teeChipSelected: {
+    backgroundColor: '#1a5f2a',
+    borderColor: '#1a5f2a',
+  },
+  teeChipText: { fontSize: 14, color: '#333', fontWeight: '500' },
+  teeChipTextSelected: { color: '#fff' },
   terms: { marginVertical: 16 },
   checkRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   checkbox: {

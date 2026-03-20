@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Linking,
 } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import type { RouteProp } from '@react-navigation/native';
 import {
   fetchGolfCourse,
@@ -23,6 +24,14 @@ const TEE_LABELS: Record<string, string> = { black: 'Black', blue: 'Blue', white
 /** 값이 0이면 공란으로 표시 */
 function cellValue(n: number): string {
   return n === 0 ? '' : String(n);
+}
+
+function normalizeExternalUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  return `https://${trimmed}`;
 }
 
 export type CourseDetailParamList = {
@@ -42,6 +51,16 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
   const [holesByCourse, setHolesByCourse] = useState<Record<string, Record<string, GolfCourseHoleInput>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const openExternalUrl = useCallback(async (value: string) => {
+    const normalized = normalizeExternalUrl(value);
+    if (!normalized) return;
+    try {
+      await Linking.openURL(normalized);
+    } catch {
+      setError('코스 URL을 열지 못했습니다.');
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -134,7 +153,20 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
         ) : (
           courses.map((course) => (
             <View key={course.id} style={styles.courseBlock}>
-              <Text style={styles.courseName}>{course.name}</Text>
+              <View style={styles.courseHeader}>
+                <Text style={styles.courseName}>{course.name}</Text>
+                {course.courseUrl ? (
+                  <TouchableOpacity
+                    onPress={() => openExternalUrl(course.courseUrl!)}
+                    style={styles.courseLinkButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="open-outline" size={16} color="#0a0" />
+                    <Text style={styles.courseLinkText}>코스 뷰</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.tableScroll}>
                 <View style={styles.table}>
                   <View style={[styles.tableRow, styles.tableHeaderRow]}>
@@ -229,13 +261,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
-  courseName: {
+  courseHeader: {
     backgroundColor: '#f5f5f5',
     paddingHorizontal: 12,
     paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  courseName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#111',
+    flex: 1,
+  },
+  courseLinkButton: {
+    marginLeft: 8,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 3,
+    justifyContent: 'center',
+    backgroundColor: '#ecfdf5',
+  },
+  courseLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0a0',
   },
   tableScroll: { maxWidth: '100%' },
   table: { borderTopWidth: 1, borderColor: '#e5e5e5', minWidth: 280 },

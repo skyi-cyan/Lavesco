@@ -79,6 +79,7 @@ export async function fetchCoursesUnderGolfCourse(
     return {
       id: d.id,
       name: data.name ?? '',
+      courseUrl: data.courseUrl ?? undefined,
       holeCount: data.holeCount ?? 9,
       order: data.order ?? 0,
       updatedAt: data.updatedAt,

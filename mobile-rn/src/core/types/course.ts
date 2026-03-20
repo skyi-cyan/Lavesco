@@ -21,6 +21,7 @@ export type TeeKey = (typeof TEE_KEYS)[number];
 export interface GolfCourseCourse {
   id: string;
   name: string;
+  courseUrl?: string;
   holeCount: number;
   order: number;
   updatedAt?: unknown;
