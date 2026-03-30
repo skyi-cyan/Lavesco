@@ -26,7 +26,10 @@ const holesUnderCourseInFlight = new Map<string, Promise<Map<string, GolfCourseH
  * 지역·이름 순 정렬
  */
 export async function fetchGolfCourses(): Promise<GolfCourse[]> {
-  const snapshot = await firestore().collection(GOLF_COURSES_COLLECTION).get();
+  // admin-web에서 새로 추가한 데이터가 “즉시” 반영되도록 서버 소스 우선 조회
+  const snapshot = await firestore()
+    .collection(GOLF_COURSES_COLLECTION)
+    .get({ source: 'server' });
   const list: GolfCourse[] = snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
@@ -47,7 +50,10 @@ export async function fetchGolfCourses(): Promise<GolfCourse[]> {
 
 /** 골프장 단건 조회 — admin-web과 동일 구조 */
 export async function fetchGolfCourse(id: string): Promise<GolfCourse | null> {
-  const docSnap = await firestore().collection(GOLF_COURSES_COLLECTION).doc(id).get();
+  const docSnap = await firestore()
+    .collection(GOLF_COURSES_COLLECTION)
+    .doc(id)
+    .get({ source: 'server' });
   if (!docSnap.exists) return null;
   const data = docSnap.data();
   if (!data) return null;
@@ -73,7 +79,7 @@ export async function fetchCoursesUnderGolfCourse(
     .doc(golfCourseId)
     .collection(COURSES)
     .orderBy('order')
-    .get();
+    .get({ source: 'server' });
   return snapshot.docs.map((d) => {
     const data = d.data();
     return {
@@ -105,7 +111,7 @@ export async function fetchHolesUnderCourse(
     .collection(COURSES)
     .doc(courseId)
     .collection(HOLES)
-    .get();
+      .get({ source: 'server' });
     const map = new Map<string, GolfCourseHoleInput>();
     snapshot.docs.forEach((d) => {
       const data = d.data();

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { fetchGolfCourses } from '../../core/services/courseService';
 import type { CourseStackParamList } from '../../app/CourseStack';
 import type { GolfCourse } from '../../core/types/course';
@@ -50,9 +50,12 @@ export function CourseListScreen(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // 탭 화면이 유지된 상태에서도 포커스를 다시 얻을 때 최신 목록을 다시 로드한다.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const onRefresh = useCallback(() => load(true), [load]);
 

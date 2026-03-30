@@ -58,6 +58,7 @@ export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
   const [submittingRequest, setSubmittingRequest] = useState(false);
   const [myRequests, setMyRequests] = useState<CourseAddRequest[]>([]);
   const [loadingMyRequests, setLoadingMyRequests] = useState(false);
+  const [myRequestsError, setMyRequestsError] = useState<string | null>(null);
 
   const loadMyRequests = useCallback(async () => {
     if (!user?.uid) {
@@ -65,10 +66,13 @@ export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
       return;
     }
     setLoadingMyRequests(true);
+    setMyRequestsError(null);
     try {
       const list = await fetchMyCourseAddRequests(user.uid);
       setMyRequests(list);
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '내 요청 내역을 불러오지 못했습니다.';
+      setMyRequestsError(msg);
       setMyRequests([]);
     } finally {
       setLoadingMyRequests(false);
@@ -109,6 +113,9 @@ export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
       setReqGolfName('');
       setReqRegion('');
       setReqDetails('');
+      // serverTimestamp(createdAt)가 바로 인덱스에 반영되지 않는 케이스를 대비해 1회 더 재조회
+      await loadMyRequests();
+      await new Promise((r) => setTimeout(r, 800));
       await loadMyRequests();
     } catch (e) {
       Alert.alert('오류', e instanceof Error ? e.message : '요청 전송에 실패했습니다.');
@@ -198,6 +205,8 @@ export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
               <Text style={styles.myRequestsTitle}>내 요청 내역</Text>
               {loadingMyRequests ? (
                 <ActivityIndicator style={{ marginVertical: 16 }} color="#059669" />
+              ) : myRequestsError ? (
+                <Text style={styles.myRequestsError}>{myRequestsError}</Text>
               ) : myRequests.length === 0 ? (
                 <Text style={styles.myRequestsEmpty}>아직 요청 내역이 없습니다.</Text>
               ) : (
@@ -335,6 +344,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#94a3b8',
     marginBottom: 8,
+  },
+  myRequestsError: {
+    fontSize: 13,
+    color: '#b91c1c',
+    marginBottom: 8,
+    marginTop: 6,
+    lineHeight: 18,
   },
   requestItem: {
     borderWidth: 1,

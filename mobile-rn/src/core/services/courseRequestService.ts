@@ -47,11 +47,10 @@ export async function fetchMyCourseAddRequests(userId: string, limitCount = 15):
   const snap = await firestore()
     .collection(COLLECTION)
     .where('userId', '==', userId)
-    .orderBy('createdAt', 'desc')
-    .limit(limitCount)
-    .get();
+    // admin-web에서 막 생성한 요청이 바로 보이도록 서버 소스 우선 조회
+    .get({ source: 'server' });
 
-  return snap.docs.map((d) => {
+  const items: CourseAddRequest[] = snap.docs.map((d) => {
     const data = d.data();
     return {
       id: d.id,
@@ -69,4 +68,18 @@ export async function fetchMyCourseAddRequests(userId: string, limitCount = 15):
       repliedAt: data.repliedAt,
     };
   });
+
+  // createdAt 기준 정렬(서버 timestamp가 늦게 채워지는 타이밍 이슈를 완화)
+  items.sort((a, b) => {
+    const toMs = (v: unknown) => {
+      if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
+        return (v as { toDate: () => Date }).toDate().getTime();
+      }
+      if (v instanceof Date) return v.getTime();
+      return 0;
+    };
+    return toMs(b.createdAt) - toMs(a.createdAt);
+  });
+
+  return items.slice(0, limitCount);
 }
