@@ -8,8 +8,10 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import firestore from '@react-native-firebase/firestore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
@@ -24,8 +26,9 @@ import type { RoundStackParamList } from '../../app/RoundStack';
 const HOLE_NUMBERS_FRONT = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const HOLE_NUMBERS_BACK = ['10', '11', '12', '13', '14', '15', '16', '17', '18'];
 const ALL_HOLE_NUMBERS = [...HOLE_NUMBERS_FRONT, ...HOLE_NUMBERS_BACK];
-const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_TEE = 'white';
+const USERS_COLLECTION = 'users';
+const SCORE_ONBOARDING_SEEN_AT = 'scoreOnboardingSeenAt';
 
 type ViewNine = 'front' | 'back';
 
@@ -52,11 +55,10 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   const [currentHoleIndex, setCurrentHoleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
   /** 현재 홀 입력 중인 값(미저장). 저장 버튼을 눌러야만 scoresByUid에 반영됨 */
   const [draftHoleScore, setDraftHoleScore] = useState<HoleScoreData>({ strokes: 0, putts: 0 });
   const [savingHole, setSavingHole] = useState(false);
-  /** 12시간 경과 후 자동 확정은 한 번만 수행하기 위한 ref */
-  const autoConfirmedRoundIdRef = useRef<string | null>(null);
   /** 참가 직후 참가자 목록에 본인이 아직 안 보일 때 재로드 한 번만 시도 */
   const loadRetriedRef = useRef(false);
 
@@ -201,6 +203,55 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   }, [load]);
 
   useEffect(() => {
+    let mounted = true;
+    const checkScoreOnboarding = async () => {
+      if (!user?.uid) return;
+      try {
+        const doc = await firestore().collection(USERS_COLLECTION).doc(user.uid).get();
+        const seenAt = doc.data()?.[SCORE_ONBOARDING_SEEN_AT];
+        if (!seenAt && mounted) {
+          setOnboardingVisible(true);
+        }
+      } catch {
+        // 안내 팝업 조회 실패 시 사용자 흐름을 막지 않음
+      }
+    };
+    checkScoreOnboarding();
+    return () => {
+      mounted = false;
+    };
+  }, [user?.uid]);
+
+  const handleCloseOnboarding = useCallback(async () => {
+    if (!user?.uid) {
+      setOnboardingVisible(false);
+      return;
+    }
+    setOnboardingVisible(false);
+    try {
+      await firestore()
+        .collection(USERS_COLLECTION)
+        .doc(user.uid)
+        .set({ [SCORE_ONBOARDING_SEEN_AT]: firestore.Timestamp.now() }, { merge: true });
+    } catch {
+      // 저장 실패 시에도 모달은 닫고 다음 진입 시 재노출될 수 있음
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => setOnboardingVisible(true)}
+          style={styles.headerHelpButton}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="help-circle-outline" size={16} color="#1565c0" />
+          <Text style={styles.headerHelpButtonText}>도움말</Text>
+        </TouchableOpacity>
+      ),
+    });
+
     const unsubscribe = navigation.addListener('focus', () => {
       load();
     });
@@ -340,22 +391,6 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     !!user?.uid &&
     ALL_HOLE_NUMBERS.every((no) => scoresByUid[user.uid]?.[no] !== undefined);
 
-  /** 확정 전 12시간 경과 시 자동 확정(한 번만) */
-  useEffect(() => {
-    if (!round?.createdAt || !user?.uid || !roundId || isScoreConfirmed) return;
-    if (autoConfirmedRoundIdRef.current === roundId) return;
-    const createdAtMs = round.createdAt.getTime();
-    if (Date.now() - createdAtMs < TWELVE_HOURS_MS) return;
-
-    autoConfirmedRoundIdRef.current = roundId;
-    const holes = normalizeMyHolesForPersist(scoresByUid[user.uid] ?? {});
-    confirmRoundScore(roundId, user.uid, holes)
-      .then(() => load())
-      .catch(() => {
-        autoConfirmedRoundIdRef.current = null;
-      });
-  }, [round?.createdAt, roundId, user?.uid, isScoreConfirmed, scoresByUid, load, normalizeMyHolesForPersist]);
-
   const handleConfirmScore = useCallback(async () => {
     if (!user?.uid || !roundId || confirming || isScoreConfirmed || !all18HolesSaved) return;
     const holes = normalizeMyHolesForPersist(scoresByUid[user.uid] ?? {});
@@ -381,15 +416,51 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* 홀 네비게이션 */}
-      <View style={styles.holeNav}>
+    <>
+      <Modal
+        visible={onboardingVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseOnboarding}
+      >
+        <View style={styles.onboardingOverlay}>
+          <View style={styles.onboardingCard}>
+            <Text style={styles.onboardingTitle}>스코어 입력 안내</Text>
+            <Text style={styles.onboardingText}>
+              1) 먼저 홀 번호를 고른 뒤 <Text style={styles.onboardingHighlight}>SCORE</Text>, <Text style={styles.onboardingHighlight}>PUTT</Text>를 입력하세요.
+            </Text>
+            <Text style={styles.onboardingText}>
+              - <Text style={styles.onboardingHighlight}>SCORE</Text>는 <Text style={styles.onboardingHighlight}>언더파/오버파</Text> 기준 숫자입니다 (예: -1, 0, +2).
+            </Text>
+            <Text style={styles.onboardingText}>
+              2) <Text style={styles.onboardingHighlight}>Fairway/Rough/Penalty/OB</Text>를 체크한 뒤 <Text style={styles.onboardingHighlight}>`n홀 저장`</Text>을 눌러주세요.
+            </Text>
+            <Text style={styles.onboardingText}>
+              - 체크한 값은 <Text style={styles.onboardingHighlight}>페어웨이 안착율 계산</Text>과 <Text style={styles.onboardingHighlight}>OECD 적용</Text>에 사용됩니다.
+            </Text>
+            <Text style={styles.onboardingText}>
+              3) 18홀 저장이 끝나면 <Text style={styles.onboardingHighlight}>`스코어 확정`</Text>을 눌러 마무리하세요.
+            </Text>
+            <TouchableOpacity
+              style={styles.onboardingButton}
+              onPress={handleCloseOnboarding}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.onboardingButtonText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {/* 홀 네비게이션 */}
+        <View style={styles.holeNav}>
         <TouchableOpacity
           style={styles.holeNavSide}
           onPress={() => setCurrentHoleIndex((i) => Math.max(0, i - 1))}
           disabled={currentHoleIndex === 0}
         >
-          <Ionicons name="chevron-back" size={20} color={currentHoleIndex === 0 ? '#ccc' : '#333'} />
+          <Ionicons name="chevron-back" size={18} color={currentHoleIndex === 0 ? '#ccc' : '#333'} />
           <Text style={styles.holeNavLabel}>
             {currentHoleIndex > 0 ? `${holeNumbers[currentHoleIndex - 1]} Hole` : ''}
           </Text>
@@ -407,7 +478,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           </Text>
           <Ionicons
             name="chevron-forward"
-            size={20}
+            size={18}
             color={currentHoleIndex === holeNumbers.length - 1 ? '#ccc' : '#333'}
           />
         </TouchableOpacity>
@@ -546,6 +617,49 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         )}
       </View>
 
+      {/* 홀 저장 + 스코어 확정 (한 줄, 확정 시 뱃지만 표시) */}
+      {user?.uid && (
+        <View style={styles.confirmSection}>
+          {isScoreConfirmed ? (
+            <View style={styles.confirmBadge}>
+              <Ionicons name="checkmark-circle" size={18} color="#0a0" />
+              <Text style={styles.confirmBadgeText}>스코어 확정됨 (수정 불가)</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={[styles.saveHoleButton, savingHole && styles.saveHoleButtonDisabled]}
+                  onPress={handleSaveCurrentHole}
+                  disabled={savingHole}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.saveHoleButtonText}>
+                    {savingHole ? '저장 중...' : `${currentHoleNo}홀 저장`}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.confirmButton,
+                    (confirming || !all18HolesSaved) && styles.confirmButtonDisabled,
+                  ]}
+                  onPress={handleConfirmScore}
+                  disabled={confirming || !all18HolesSaved}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.confirmButtonText}>
+                    {confirming ? '확정 중...' : '스코어 확정'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {!all18HolesSaved && (
+                <Text style={styles.confirmHint}>18홀 모두 저장한 후 확정할 수 있습니다.</Text>
+              )}
+            </>
+          )}
+        </View>
+      )}
+
       {/* Out / In / Total 합계 */}
       {user?.uid && (
         (() => {
@@ -607,49 +721,6 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
             </View>
           );
         })()
-      )}
-
-      {/* 홀 저장 + 스코어 확정 (한 줄, 확정 시 뱃지만 표시) */}
-      {user?.uid && (
-        <View style={styles.confirmSection}>
-          {isScoreConfirmed ? (
-            <View style={styles.confirmBadge}>
-              <Ionicons name="checkmark-circle" size={18} color="#0a0" />
-              <Text style={styles.confirmBadgeText}>스코어 확정됨 (수정 불가)</Text>
-            </View>
-          ) : (
-            <>
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  style={[styles.saveHoleButton, savingHole && styles.saveHoleButtonDisabled]}
-                  onPress={handleSaveCurrentHole}
-                  disabled={savingHole}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.saveHoleButtonText}>
-                    {savingHole ? '저장 중...' : `${currentHoleNo}홀 저장`}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.confirmButton,
-                    (confirming || !all18HolesSaved) && styles.confirmButtonDisabled,
-                  ]}
-                  onPress={handleConfirmScore}
-                  disabled={confirming || !all18HolesSaved}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.confirmButtonText}>
-                    {confirming ? '확정 중...' : '스코어 확정'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              {!all18HolesSaved && (
-                <Text style={styles.confirmHint}>18홀 모두 저장한 후 확정할 수 있습니다.</Text>
-              )}
-            </>
-          )}
-        </View>
       )}
 
       {/* 스코어카드 테이블 */}
@@ -740,8 +811,9 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
             </View>
           );
         })}
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </>
   );
 }
 
@@ -749,34 +821,93 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   content: { padding: 16, paddingBottom: 32 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  onboardingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  onboardingCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+  },
+  onboardingTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111',
+    marginBottom: 10,
+  },
+  onboardingText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  onboardingHighlight: {
+    color: '#f57c00',
+    fontWeight: '800',
+  },
+  onboardingButton: {
+    marginTop: 8,
+    backgroundColor: '#0a0',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  onboardingButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  headerHelpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 999,
+    backgroundColor: '#eff6ff',
+  },
+  headerHelpButtonText: {
+    fontSize: 11,
+    color: '#1565c0',
+    fontWeight: '700',
+  },
   holeNav: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   holeNavSide: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    padding: 8,
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
-  holeNavLabel: { fontSize: 14, color: '#666' },
+  holeNavLabel: { fontSize: 12, color: '#666' },
   holeCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#0a0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  holeCircleText: { fontSize: 24, fontWeight: '700', color: '#fff' },
+  holeCircleText: { fontSize: 20, fontWeight: '700', color: '#fff' },
   holeInfoBlock: {
     borderBottomWidth: 2,
     borderBottomColor: '#2196f3',
-    paddingBottom: 8,
+    paddingBottom: 4,
     paddingHorizontal: 4,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   holeInfoRowTop: {
     flexDirection: 'row',
@@ -787,8 +918,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
-    gap: 8,
+    marginTop: 2,
+    gap: 6,
   },
   holeInfoRowBottomAlignEnd: {
     justifyContent: 'flex-end',
@@ -796,12 +927,12 @@ const styles = StyleSheet.create({
   holeInfoHintWrap: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 2,
+    paddingVertical: 0,
   },
   holeInfoCourseWrap: { flex: 1, minWidth: 0 },
-  holeInfoCourse: { fontSize: 18, fontWeight: '600', color: '#1a5f2a' },
+  holeInfoCourse: { fontSize: 15, fontWeight: '600', color: '#1a5f2a' },
   holeInfoCourseDisabled: { color: '#888' },
-  holeInfoCourseHint: { fontSize: 11, color: '#888' },
+  holeInfoCourseHint: { fontSize: 10, color: '#888' },
   holeInfoRight: {
     flex: 1,
     flexDirection: 'row',
@@ -810,28 +941,28 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   courseViewButton: {
-    height: 28,
-    paddingHorizontal: 8,
+    height: 26,
+    paddingHorizontal: 6,
     borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     backgroundColor: '#ecfdf5',
     borderWidth: 1,
     borderColor: '#86efac',
     flexShrink: 0,
   },
   courseViewButtonText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: '#0a0',
   },
-  holeInfoPar: { fontSize: 28, fontWeight: '800', color: '#c00', textAlign: 'center', marginHorizontal: 8, flexShrink: 0 },
-  holeInfoDistance: { fontSize: 18, fontWeight: '600', color: '#1565c0', textAlign: 'right', flexShrink: 0 },
+  holeInfoPar: { fontSize: 22, fontWeight: '800', color: '#c00', textAlign: 'center', marginHorizontal: 6, flexShrink: 0 },
+  holeInfoDistance: { fontSize: 15, fontWeight: '600', color: '#1565c0', textAlign: 'right', flexShrink: 0 },
   scoreRow: {
     flexDirection: 'row',
     gap: 24,
-    marginTop: 20,
+    marginTop: 14,
     marginBottom: 16,
   },
   scoreBlock: { flex: 1, alignItems: 'center' },

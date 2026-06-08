@@ -172,7 +172,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
       Alert.alert('입력 확인', '골프장을 입력하거나 선택해주세요.');
       return;
     }
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      Alert.alert('로그인 필요', '다시 로그인한 뒤 시도해 주세요.');
+      return;
+    }
 
     if (!directInput && selectedGolfCourse && !frontCourse) {
       Alert.alert('입력 확인', '전반 코스를 선택해주세요.');
@@ -196,16 +199,18 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           scheduledAt: scheduledDate,
         }
       );
-      setCreating(false);
+      // 홈「라운드 만들기」등으로 들어오면 스택에 RoundList가 없어 goBack()이 동작하지 않을 수 있음 → 목록으로 명시적 리셋
+      navigation.reset({ index: 0, routes: [{ name: 'RoundList' }] });
       Alert.alert(
         '라운드 생성 완료',
         `라운드가 생성되었습니다.\n\n라운드 번호: ${round.roundNumber ?? '-'}`,
-        [{ text: '확인', onPress: () => navigation.goBack() }]
+        [{ text: '확인' }]
       );
     } catch (e) {
-      setCreating(false);
       const message = (e as Error)?.message ?? '라운드 생성에 실패했습니다.';
       Alert.alert('생성 실패', message);
+    } finally {
+      setCreating(false);
     }
   };
 
