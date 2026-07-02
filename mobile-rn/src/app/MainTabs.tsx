@@ -4,12 +4,14 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { RoundStack, type RoundStackParamList } from './RoundStack';
+import { DistanceStack, type DistanceStackParamList } from './DistanceStack';
 import { CourseStack } from './CourseStack';
 import { ProfileStack } from './ProfileStack';
 
 export type MainTabParamList = {
   Home: undefined;
   Round: NavigatorScreenParams<RoundStackParamList>;
+  Distance: NavigatorScreenParams<DistanceStackParamList>;
   Course: undefined;
   Profile: undefined;
 };
@@ -19,6 +21,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const tabIcons: Record<string, { focused: string; unfocused: string }> = {
   Home: { focused: 'home', unfocused: 'home-outline' },
   Round: { focused: 'flag', unfocused: 'flag-outline' },
+  Distance: { focused: 'locate', unfocused: 'locate-outline' },
   Course: { focused: 'map', unfocused: 'map-outline' },
   Profile: { focused: 'person', unfocused: 'person-outline' },
 };
@@ -47,6 +50,11 @@ export function MainTabs(): React.JSX.Element {
         name="Round"
         component={RoundStack}
         options={{ title: '라운드', tabBarLabel: '라운드', headerShown: false }}
+      />
+      <Tab.Screen
+        name="Distance"
+        component={DistanceStack}
+        options={{ title: '거리기록', tabBarLabel: '거리', headerShown: false }}
       />
       <Tab.Screen
         name="Course"

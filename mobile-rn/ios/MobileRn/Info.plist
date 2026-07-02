@@ -35,7 +35,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>샷 시작점과 볼 위치를 측정하여 비거리를 기록하기 위해 위치 정보가 필요합니다.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>프로필 사진을 선택하기 위해 사진 라이브러리 접근이 필요합니다.</string>
 	<key>UILaunchStoryboardName</key>

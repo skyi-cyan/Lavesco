@@ -237,6 +237,52 @@ export async function fetchUserRounds(uid: string): Promise<Round[]> {
   return list;
 }
 
+function isSameLocalCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function hasAnyHoleScore(holes: Record<string, HoleScoreData>): boolean {
+  return Object.values(holes).some(
+    (h) => h && typeof h.strokes === 'number' && h.strokes > 0
+  );
+}
+
+/**
+ * 오늘(로컬 기준) 진행 중인 라운드 조회.
+ * - 당일 scheduledAt(없으면 createdAt) 라운드
+ * - FINISHED 제외, 스코어 미확정
+ * - IN_PROGRESS 이거나 홀 스코어가 1건 이상 입력된 경우
+ */
+export async function findTodayInProgressRound(
+  uid: string,
+  referenceDate: Date = new Date()
+): Promise<Round | null> {
+  const rounds = await fetchUserRounds(uid);
+  for (const round of rounds) {
+    if (round.status === 'FINISHED') continue;
+
+    const roundDay = round.scheduledAt ?? round.createdAt;
+    if (!isSameLocalCalendarDay(roundDay, referenceDate)) continue;
+
+    const participant = await fetchRoundParticipant(round.id, uid);
+    if (!participant || participant.scoreConfirmedAt) continue;
+
+    if (round.status === 'IN_PROGRESS') {
+      return round;
+    }
+
+    const holes = await fetchRoundScore(round.id, uid);
+    if (hasAnyHoleScore(holes)) {
+      return round;
+    }
+  }
+  return null;
+}
+
 export type CreateRoundInput = {
   roundName: string | null;
   golfCourseId: string;

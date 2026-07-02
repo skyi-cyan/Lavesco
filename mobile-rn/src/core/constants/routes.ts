@@ -12,6 +12,7 @@ export const AppRoutes = {
   roundRegister: '/round/register',
   roundJoin: '/round/join',
   roundSelectCourse: '/round/select-course',
+  distance: '/distance',
   course: '/course',
   profile: '/profile',
 } as const;

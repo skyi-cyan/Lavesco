@@ -150,6 +150,10 @@ service cloud.firestore {
         allow read: if request.auth != null;
         allow write: if hasAdminClaim() || (request.auth != null && request.auth.uid == uid);
       }
+      // 클럽별 GPS 거리 기록
+      match /distanceRecords/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
     }
   }
 }
