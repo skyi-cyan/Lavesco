@@ -135,7 +135,7 @@ export function HomeScreen(): React.JSX.Element {
     <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: 148 + insets.bottom }]}
+        contentContainerStyle={[styles.content, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroWrap}>
@@ -224,7 +224,9 @@ export function HomeScreen(): React.JSX.Element {
             <View style={[styles.shortcutIconWrap, styles.shortcutIconCreate]}>
               <Ionicons name="add-circle" size={22} color="#fff" />
             </View>
-            <Text style={styles.shortcutLabel}>라운드 만들기</Text>
+            <Text style={styles.shortcutLabel} numberOfLines={2}>
+              라운드{'\n'}만들기
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.shortcutBtn}
@@ -236,8 +238,8 @@ export function HomeScreen(): React.JSX.Element {
             </View>
             <Text style={styles.shortcutLabel}>참여하기</Text>
           </TouchableOpacity>
+          <CourseAddRequestFooter variant="card" />
         </View>
-        <CourseAddRequestFooter style={{ marginTop: 8 }} />
       </View>
     </View>
   );
@@ -339,13 +341,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingTop: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     backgroundColor: 'rgba(240,247,242,0.98)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(226,232,240,0.8)',
   },
   heroWrap: {
-    height: 220,
+    height: 160,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     overflow: 'hidden',
@@ -368,14 +370,15 @@ const styles = StyleSheet.create({
   },
   shortcuts: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    gap: 10,
   },
   shortcutBtn: {
+    flex: 1,
     alignItems: 'center',
-    minWidth: 100,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     backgroundColor: '#fff',
     borderRadius: 16,
     borderWidth: 1,
@@ -401,8 +404,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
   },
   shortcutLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#334155',
+    textAlign: 'center',
+    lineHeight: 15,
   },
 });

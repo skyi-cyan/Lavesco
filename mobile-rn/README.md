@@ -190,6 +190,17 @@ npm start -- --port 8082
 **방법 3 – Metro 켜 둔 터미널이 있으면**  
 그 터미널에서 Ctrl+C로 Metro를 종료한 뒤, 새 터미널에서 `npm start` 하면 됩니다.
 
+## Google Play 내부 테스트 (Android)
+
+내부 테스터용 AAB 빌드 및 Play Console 업로드 절차는 **[docs/GOOGLE_PLAY_INTERNAL_TESTING.md](../docs/GOOGLE_PLAY_INTERNAL_TESTING.md)** 를 참고하세요.
+
+```powershell
+cd mobile-rn
+npm run android:keystore          # 최초 1회: 업로드 키스토어 생성
+# android/keystore.properties 비밀번호 입력
+npm run android:bundle:release    # dist/lavesco-1.0.0-internal.aab 생성
+```
+
 ## 프로젝트 구조
 
 ```

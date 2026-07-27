@@ -44,12 +44,14 @@ function formatRequestDate(v: unknown): string {
 type Props = {
   /** 버튼 행에 추가 스타일 (예: marginTop) */
   style?: StyleProp<ViewStyle>;
+  /** bar: 가로형(코스 탭) / card: 홈 바로가기와 동일 카드형 */
+  variant?: 'bar' | 'card';
 };
 
 /**
  * 코스추가 요청하기 버튼 + 모달 (홈·코스 메뉴 공통)
  */
-export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
+export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React.JSX.Element {
   const { profile, user } = useAuth();
   const [requestModalVisible, setRequestModalVisible] = useState(false);
   const [reqGolfName, setReqGolfName] = useState('');
@@ -126,15 +128,30 @@ export function CourseAddRequestFooter({ style }: Props): React.JSX.Element {
 
   return (
     <>
-      <TouchableOpacity
-        style={[styles.courseRequestShortcut, style]}
-        onPress={openCourseRequestModal}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="map-outline" size={20} color="#0369a1" />
-        <Text style={styles.courseRequestShortcutText}>코스추가 요청하기</Text>
-        <Ionicons name="chevron-forward" size={18} color="#64748b" />
-      </TouchableOpacity>
+      {variant === 'card' ? (
+        <TouchableOpacity
+          style={[styles.cardBtn, style]}
+          onPress={openCourseRequestModal}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.cardIconWrap, styles.cardIconCourse]}>
+            <Ionicons name="map" size={22} color="#fff" />
+          </View>
+          <Text style={styles.cardLabel} numberOfLines={2}>
+            코스추가{'\n'}요청하기
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[styles.courseRequestShortcut, style]}
+          onPress={openCourseRequestModal}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="map-outline" size={20} color="#0369a1" />
+          <Text style={styles.courseRequestShortcutText}>코스추가 요청하기</Text>
+          <Ionicons name="chevron-forward" size={18} color="#64748b" />
+        </TouchableOpacity>
+      )}
 
       <Modal
         visible={requestModalVisible}
@@ -263,6 +280,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#0369a1',
+  },
+  cardBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardIconCourse: {
+    backgroundColor: '#0369a1',
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#334155',
+    textAlign: 'center',
+    lineHeight: 15,
   },
   modalOverlay: {
     flex: 1,

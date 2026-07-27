@@ -5,6 +5,8 @@
   "scripts": {
     "postinstall": "patch-package",
     "android": "react-native run-android",
+    "android:bundle:release": "powershell -ExecutionPolicy Bypass -File ./scripts/build-play-aab.ps1",
+    "android:keystore": "powershell -ExecutionPolicy Bypass -File ./scripts/generate-release-keystore.ps1",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",

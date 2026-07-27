@@ -33,7 +33,11 @@ local.properties
 .cxx/
 *.keystore
 !debug.keystore
+keystore.properties
 .kotlin/
+
+# Play release artifacts
+dist/
 
 # Firebase / Google (API keys)
 **/google-services.json
