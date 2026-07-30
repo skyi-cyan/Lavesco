@@ -10,7 +10,7 @@ $googleServices = Join-Path $mobileRnRoot "android\app\google-services.json"
 $androidDir = Join-Path $mobileRnRoot "android"
 $aabOutput = Join-Path $mobileRnRoot "android\app\build\outputs\bundle\release\app-release.aab"
 $distDir = Join-Path $mobileRnRoot "dist"
-$distAab = Join-Path $distDir "lavesco-1.0.0-internal.aab"
+$distAab = Join-Path $distDir "lavesco-1.0.1-internal.aab"
 
 function Fail($message) {
     Write-Host "ERROR: $message" -ForegroundColor Red

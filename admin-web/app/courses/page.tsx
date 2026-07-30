@@ -22,6 +22,7 @@ export default function CoursesPage() {
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [nameQuery, setNameQuery] = useState('');
   const [regionModalOpen, setRegionModalOpen] = useState(false);
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [modalRegionQuery, setModalRegionQuery] = useState('');
@@ -51,10 +52,16 @@ export default function CoursesPage() {
   }, [list]);
 
   const filteredList = useMemo(() => {
-    if (selectedRegions.length === 0) return list;
-    const set = new Set(selectedRegions);
-    return list.filter((c) => set.has(normalizeRegionLabel(c.region)));
-  }, [list, selectedRegions]);
+    const q = nameQuery.trim().toLowerCase();
+    const regionSet = selectedRegions.length > 0 ? new Set(selectedRegions) : null;
+    return list.filter((c) => {
+      if (regionSet && !regionSet.has(normalizeRegionLabel(c.region))) return false;
+      if (q && !(c.name ?? '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [list, selectedRegions, nameQuery]);
+
+  const hasActiveFilter = selectedRegions.length > 0 || nameQuery.trim().length > 0;
 
   const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE));
 
@@ -101,8 +108,9 @@ export default function CoursesPage() {
     setRegionModalOpen(false);
   };
 
-  const clearRegionFilter = () => {
+  const clearAllFilters = () => {
     setSelectedRegions([]);
+    setNameQuery('');
     setPage(1);
   };
 
@@ -166,34 +174,47 @@ export default function CoursesPage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={openRegionModal}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-                >
-                  권역 검색
-                </button>
-                {selectedRegions.length > 0 && (
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <input
+                    type="search"
+                    value={nameQuery}
+                    onChange={(e) => {
+                      setNameQuery(e.target.value);
+                      setPage(1);
+                    }}
+                    placeholder="골프장명 검색"
+                    className="w-full min-w-[12rem] max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    aria-label="골프장명 검색"
+                  />
                   <button
                     type="button"
-                    onClick={clearRegionFilter}
-                    className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    onClick={openRegionModal}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
                   >
-                    필터 초기화
+                    권역 검색
                   </button>
-                )}
+                  {hasActiveFilter && (
+                    <button
+                      type="button"
+                      onClick={clearAllFilters}
+                      className="text-sm text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    >
+                      필터 초기화
+                    </button>
+                  )}
+                </div>
+                <p className="shrink-0 text-sm text-zinc-500 dark:text-zinc-400">
+                  전체 {list.length}곳
+                  {hasActiveFilter && (
+                    <span className="text-zinc-700 dark:text-zinc-300">
+                      {' '}
+                      · 표시 {filteredList.length}곳
+                    </span>
+                  )}
+                </p>
               </div>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                전체 {list.length}곳
-                {selectedRegions.length > 0 && (
-                  <span className="text-zinc-700 dark:text-zinc-300">
-                    {' '}
-                    · 표시 {filteredList.length}곳
-                  </span>
-                )}
-              </p>
             </div>
 
             {selectedRegions.length > 0 && (
@@ -212,11 +233,13 @@ export default function CoursesPage() {
             {filteredList.length === 0 ? (
               <div className="rounded-xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-700 dark:bg-zinc-800">
                 <p className="text-zinc-500 dark:text-zinc-400">
-                  선택한 권역에 해당하는 골프장이 없습니다.
+                  {nameQuery.trim()
+                    ? '검색어에 해당하는 골프장이 없습니다.'
+                    : '선택한 권역에 해당하는 골프장이 없습니다.'}
                 </p>
                 <button
                   type="button"
-                  onClick={clearRegionFilter}
+                  onClick={clearAllFilters}
                   className="mt-4 text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
                 >
                   필터 초기화
