@@ -28,21 +28,16 @@ type HomeNav = CompositeNavigationProp<
   NativeStackNavigationProp<RoundStackParamList>
 >;
 
-/** 헤더 우측 프로필(사진 + 닉네임) */
+/** 헤더 우측 프로필(아이콘 + 닉네임) */
 function HomeHeaderRight(): React.JSX.Element {
   const { profile, user } = useAuth();
   const nickname =
     profile?.nickname ?? profile?.displayName ?? user?.email ?? '사용자';
-  const photoURL = profile?.photoURL ?? null;
   return (
     <View style={headerStyles.wrap}>
-      {photoURL ? (
-        <Image source={{ uri: photoURL }} style={headerStyles.avatar} />
-      ) : (
-        <View style={headerStyles.avatarPlaceholder}>
-          <Ionicons name="person" size={18} color="#888" />
-        </View>
-      )}
+      <View style={headerStyles.avatarPlaceholder}>
+        <Ionicons name="trophy" size={18} color="#f5c518" />
+      </View>
       <Text style={headerStyles.nickname} numberOfLines={1}>
         {nickname}
       </Text>
@@ -58,16 +53,11 @@ const headerStyles = StyleSheet.create({
     gap: 8,
     maxWidth: 160,
   },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
   avatarPlaceholder: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#e5e5e5',
+    backgroundColor: '#fff9e6',
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -11,7 +11,6 @@ import {
   TextInput,
   ScrollView,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { fetchGolfCourses } from '../../core/services/courseService';
@@ -19,14 +18,12 @@ import type { CourseStackParamList } from '../../app/CourseStack';
 import type { GolfCourse } from '../../core/types/course';
 import { REGION_GROUPS, matchRegionGroup } from '../../core/constants/regions';
 import type { RegionGroupId } from '../../core/constants/regions';
-import { CourseAddRequestFooter } from '../shared/CourseAddRequestFooter';
 
 const DEFAULT_REGION: RegionGroupId = '수도권';
 
 type CourseListNav = NativeStackNavigationProp<CourseStackParamList, 'CourseList'>;
 
 export function CourseListScreen(): React.JSX.Element {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<CourseListNav>();
   const [list, setList] = useState<GolfCourse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +37,7 @@ export function CourseListScreen(): React.JSX.Element {
     else setLoading(true);
     setError(null);
     try {
-      const data = await fetchGolfCourses();
+      const data = await fetchGolfCourses({ forceServer: isRefresh });
       setList(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러올 수 없습니다.');
@@ -153,6 +150,12 @@ export function CourseListScreen(): React.JSX.Element {
           </TouchableOpacity>
         ))}
       </ScrollView>
+      <Text style={styles.countText}>
+        <Text style={styles.countNumber}>{filteredList.length}</Text>
+        <Text style={styles.countLabel}>개 / 총 </Text>
+        <Text style={styles.countNumber}>{list.length}</Text>
+        <Text style={styles.countLabel}>개</Text>
+      </Text>
     </View>
   );
 
@@ -188,19 +191,33 @@ export function CourseListScreen(): React.JSX.Element {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#0a0']} />
             }
             ListEmptyComponent={
-              <Text style={styles.emptyText}>
-                {list.length === 0
-                  ? '등록된 골프장이 없습니다.\nadmin-web에서 골프장을 추가해 보세요.'
-                  : '검색·지역 조건에 맞는 골프장이 없습니다.'}
-              </Text>
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>
+                  {list.length === 0
+                    ? '등록된 골프장이 없습니다.'
+                    : '검색·지역 조건에 맞는 골프장이 없습니다.'}
+                </Text>
+                <Text style={styles.emptySub}>
+                  {list.length === 0 ? (
+                    <>
+                      홈의{' '}
+                      <Text style={styles.emptyHighlight}>「코스추가 요청하기」</Text>
+                      로 요청해 주세요.
+                    </>
+                  ) : (
+                    <>
+                      찾는 코스가 없으면 홈의{' '}
+                      <Text style={styles.emptyHighlight}>「코스추가 요청하기」</Text>
+                      로 요청해 주세요.
+                    </>
+                  )}
+                </Text>
+              </View>
             }
             keyboardShouldPersistTaps="handled"
           />
         </>
       )}
-      <View style={[styles.courseFooterBar, { paddingBottom: 0 + insets.bottom }]}>
-        <CourseAddRequestFooter />
-      </View>
     </View>
   );
 }
@@ -218,13 +235,6 @@ const styles = StyleSheet.create({
   },
   listFlex: {
     flex: 1,
-  },
-  courseFooterBar: {
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    backgroundColor: '#f5f5f5',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e5e5',
   },
   header: {
     backgroundColor: '#f5f5f5',
@@ -292,6 +302,21 @@ const styles = StyleSheet.create({
   regionChipTextSelected: {
     color: '#fff',
   },
+  countText: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    fontSize: 13,
+  },
+  countNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  countLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+  },
   loadingText: {
     marginTop: 12,
     fontSize: 14,
@@ -320,14 +345,29 @@ const styles = StyleSheet.create({
   },
   emptyList: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 24,
+    paddingTop: 28,
+  },
+  emptyWrap: {
+    alignItems: 'center',
   },
   emptyText: {
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  emptySub: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  emptyHighlight: {
+    color: '#059669',
+    fontWeight: '700',
   },
   item: {
     backgroundColor: '#fff',

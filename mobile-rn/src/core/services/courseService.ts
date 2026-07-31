@@ -23,13 +23,13 @@ const holesUnderCourseInFlight = new Map<string, Promise<Map<string, GolfCourseH
 
 /**
  * admin-web에서 등록한 골프장 목록 조회 (로그인 사용자만 읽기 가능)
- * 지역·이름 순 정렬
+ * 기본은 캐시 허용. 당겨서 새로고침 등에는 forceServer 사용.
  */
-export async function fetchGolfCourses(): Promise<GolfCourse[]> {
-  // admin-web에서 새로 추가한 데이터가 “즉시” 반영되도록 서버 소스 우선 조회
-  const snapshot = await firestore()
-    .collection(GOLF_COURSES_COLLECTION)
-    .get({ source: 'server' });
+export async function fetchGolfCourses(options?: {
+  forceServer?: boolean;
+}): Promise<GolfCourse[]> {
+  const getOpts = options?.forceServer ? { source: 'server' as const } : undefined;
+  const snapshot = await firestore().collection(GOLF_COURSES_COLLECTION).get(getOpts);
   const list: GolfCourse[] = snapshot.docs.map((doc) => {
     const data = doc.data();
     return {
@@ -49,11 +49,15 @@ export async function fetchGolfCourses(): Promise<GolfCourse[]> {
 }
 
 /** 골프장 단건 조회 — admin-web과 동일 구조 */
-export async function fetchGolfCourse(id: string): Promise<GolfCourse | null> {
+export async function fetchGolfCourse(
+  id: string,
+  options?: { forceServer?: boolean }
+): Promise<GolfCourse | null> {
+  const getOpts = options?.forceServer ? { source: 'server' as const } : undefined;
   const docSnap = await firestore()
     .collection(GOLF_COURSES_COLLECTION)
     .doc(id)
-    .get({ source: 'server' });
+    .get(getOpts);
   if (!docSnap.exists) return null;
   const data = docSnap.data();
   if (!data) return null;
@@ -72,14 +76,16 @@ export async function fetchGolfCourse(id: string): Promise<GolfCourse | null> {
 
 /** 골프장 하위 코스 목록 (황룡, 청룡 등) — admin-web과 동일 */
 export async function fetchCoursesUnderGolfCourse(
-  golfCourseId: string
+  golfCourseId: string,
+  options?: { forceServer?: boolean }
 ): Promise<GolfCourseCourse[]> {
+  const getOpts = options?.forceServer ? { source: 'server' as const } : undefined;
   const snapshot = await firestore()
     .collection(GOLF_COURSES_COLLECTION)
     .doc(golfCourseId)
     .collection(COURSES)
     .orderBy('order')
-    .get({ source: 'server' });
+    .get(getOpts);
   return snapshot.docs.map((d) => {
     const data = d.data();
     return {
@@ -111,7 +117,7 @@ export async function fetchHolesUnderCourse(
     .collection(COURSES)
     .doc(courseId)
     .collection(HOLES)
-      .get({ source: 'server' });
+      .get();
     const map = new Map<string, GolfCourseHoleInput>();
     snapshot.docs.forEach((d) => {
       const data = d.data();

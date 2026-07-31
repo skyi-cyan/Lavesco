@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Linking,
   Modal,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -81,11 +80,10 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   const openCourseView = async () => {
     const normalized = normalizeExternalUrl(currentCourseUrl ?? '');
     if (!normalized) return;
-    try {
-      await Linking.openURL(normalized);
-    } catch {
-      Alert.alert('열기 실패', '코스 URL을 열지 못했습니다.');
-    }
+    navigation.navigate('CourseWebView', {
+      url: normalized,
+      title: courseNameForHole !== '-' ? `${courseNameForHole} 코스` : '코스 보기',
+    });
   };
 
   /** 현재 홀 변경 시 draft를 저장된 값(또는 기본값)으로 동기화. 스코어 미입력 시 par 기준 0으로 둠. */

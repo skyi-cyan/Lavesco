@@ -39,11 +39,18 @@ const PARTICIPANTS = 'participants';
 const SCORES = 'scores';
 const USERS_COLLECTION = 'users';
 const ROUND_IDS = 'roundIds';
+const INVITES_COLLECTION = 'invites';
+/** 목록/통계용 roundIds 상한 (초과 분은 추후 페이지네이션) */
+const MAX_USER_ROUND_IDS = 150;
 
 // ---- In-memory caches (for HomeScreen stats speed-up) ----
 // Firestore reads are relatively expensive in RN. HomeScreen stats may trigger multiple reads
 // across roundIds (participants, scores, and round meta), so we memoize short-lived results.
-const CACHE_TTL_MS = 15 * 1000; // keep small to avoid showing stale stats for long
+const CACHE_TTL_MS = 60 * 1000; // list/home 재진입 시 캐시 히트 우선
+const USER_ROUNDS_CACHE_TTL_MS = 90 * 1000;
+
+type UserRoundsCacheEntry = { uid: string; expiresAt: number; value: Round[] };
+let userRoundsCache: UserRoundsCacheEntry | null = null;
 const roundCache = new Map<string, { expiresAt: number; value: Round | null }>();
 const roundInFlight = new Map<string, Promise<Round | null>>();
 
@@ -117,12 +124,18 @@ function roundFromDoc(id: string, data: Record<string, unknown>): Round {
 
 /**
  * 사용자가 참여 중인 라운드 ID 목록 조회 (users/{uid}/roundIds)
+ * 상한으로 읽기 비용을 제한합니다.
  */
-export async function fetchUserRoundIds(uid: string): Promise<string[]> {
+export async function fetchUserRoundIds(
+  uid: string,
+  options?: { limit?: number }
+): Promise<string[]> {
+  const max = options?.limit ?? MAX_USER_ROUND_IDS;
   const snapshot = await firestore()
     .collection(USERS_COLLECTION)
     .doc(uid)
     .collection(ROUND_IDS)
+    .limit(max)
     .get();
   return snapshot.docs.map((d) => d.id);
 }
@@ -154,11 +167,26 @@ export async function fetchRound(roundId: string): Promise<Round | null> {
 }
 
 /**
- * 라운드 번호(4자리)로 라운드 조회. 동일 번호 중복 시 첫 번째 결과 반환.
+ * 라운드 번호(6자리)로 라운드 조회.
+ * 1) invites/{code} 단건 get (권장)
+ * 2) 구버전 폴백: rounds where roundNumber == code limit 1
  */
 export async function fetchRoundByRoundNumber(roundNumber: string): Promise<Round | null> {
   const trimmed = String(roundNumber).trim();
-  if (trimmed.length !== 4) return null;
+  if (!/^\d{4,6}$/.test(trimmed)) return null;
+
+  const inviteSnap = await firestore()
+    .collection(INVITES_COLLECTION)
+    .doc(trimmed)
+    .get();
+  if (inviteSnap.exists) {
+    const roundId = inviteSnap.data()?.roundId;
+    if (typeof roundId === 'string' && roundId) {
+      return fetchRound(roundId);
+    }
+  }
+
+  // 구버전(초대 문서 없는 4자리) 폴백
   const snapshot = await firestore()
     .collection(ROUNDS_COLLECTION)
     .where('roundNumber', '==', trimmed)
@@ -191,6 +219,11 @@ export async function joinRound(
 
   const participantRef = roundRef.collection(PARTICIPANTS).doc(uid);
   const now = new Date();
+  const nowTs = firestore.Timestamp.fromDate(now);
+  const userRef = db.collection(USERS_COLLECTION).doc(uid);
+  const roundIdRef = userRef.collection(ROUND_IDS).doc(roundId);
+  const existingRoundId = await roundIdRef.get();
+  const isNewMembership = !existingRoundId.exists;
 
   const participantData = {
     uid,
@@ -201,40 +234,88 @@ export async function joinRound(
     totalOut: 0,
     totalIn: 0,
     total: 0,
-    updatedAt: firestore.Timestamp.fromDate(now),
+    updatedAt: nowTs,
   };
 
-  await participantRef.set(participantData, { merge: true });
-
-  await db
-    .collection(USERS_COLLECTION)
-    .doc(uid)
-    .collection(ROUND_IDS)
-    .doc(roundId)
-    .set({ roundId });
+  const batch = db.batch();
+  batch.set(participantRef, participantData, { merge: true });
+  batch.set(roundIdRef, { roundId, createdAt: nowTs });
+  if (isNewMembership) {
+    batch.set(
+      userRef,
+      {
+        roundCount: firestore.FieldValue.increment(1),
+        updatedAt: nowTs,
+      },
+      { merge: true }
+    );
+  }
+  await batch.commit();
 
   const verifySnap = await participantRef.get({ source: 'server' });
   if (!verifySnap.exists) {
     throw new Error('참가자 등록이 반영되지 않았습니다. 다시 시도해 주세요.');
   }
+  userRoundsCache = null;
 }
 
 /**
  * 사용자 라운드 목록: roundIds로 조회 후 rounds 병렬 조회, scheduledAt 내림차순
  */
-export async function fetchUserRounds(uid: string): Promise<Round[]> {
+export async function fetchUserRounds(
+  uid: string,
+  options?: { force?: boolean }
+): Promise<Round[]> {
+  if (
+    !options?.force &&
+    userRoundsCache &&
+    userRoundsCache.uid === uid &&
+    userRoundsCache.expiresAt > Date.now()
+  ) {
+    return userRoundsCache.value;
+  }
+
   const roundIds = await fetchUserRoundIds(uid);
-  if (roundIds.length === 0) return [];
-  const rounds = await Promise.all(
-    roundIds.map((id) => fetchRound(id))
-  );
+  if (roundIds.length === 0) {
+    userRoundsCache = { uid, expiresAt: Date.now() + USER_ROUNDS_CACHE_TTL_MS, value: [] };
+    return [];
+  }
+  const rounds = await Promise.all(roundIds.map((id) => fetchRound(id)));
   const list = rounds.filter((r): r is Round => r != null);
   list.sort((a, b) => {
     const at = a.scheduledAt?.getTime() ?? a.createdAt.getTime();
     const bt = b.scheduledAt?.getTime() ?? b.createdAt.getTime();
     return bt - at;
   });
+  userRoundsCache = {
+    uid,
+    expiresAt: Date.now() + USER_ROUNDS_CACHE_TTL_MS,
+    value: list,
+  };
   return list;
+}
+
+export type RoundListItemMeta = {
+  participant: RoundParticipant | null;
+  /** 본인 홀 스코어가 1건 이상 저장됨 (확정 전 진행중 판단용) */
+  hasSavedScore: boolean;
+};
+
+/**
+ * 라운드 목록 카드용 메타: 내 참가자 문서만 조회 (스코어 문서 미조회).
+ * 진행중 = IN_PROGRESS | holesEntered > 0 | 확정됨.
+ */
+export async function fetchRoundListItemMeta(
+  roundId: string,
+  uid: string,
+  roundStatus: RoundStatus
+): Promise<RoundListItemMeta> {
+  const participant = await fetchRoundParticipant(roundId, uid, { source: 'default' });
+  const hasSavedScore =
+    !!participant?.scoreConfirmedAt ||
+    roundStatus === 'IN_PROGRESS' ||
+    (participant?.holesEntered ?? 0) > 0;
+  return { participant, hasSavedScore };
 }
 
 function isSameLocalCalendarDay(a: Date, b: Date): boolean {
@@ -295,14 +376,20 @@ export type CreateRoundInput = {
   scheduledAt?: Date | null;
 };
 
-/** 4자리 라운드 번호 생성 (1000~9999) */
-function generateRoundNumber(): string {
-  const n = Math.floor(Math.random() * 9000) + 1000;
-  return String(n);
+/** 6자리 라운드 번호 생성 (100000~999999), invites 문서 기준 중복 회피 */
+async function allocateRoundNumber(): Promise<string> {
+  const db = firestore();
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const n = Math.floor(Math.random() * 900000) + 100000;
+    const code = String(n);
+    const inviteSnap = await db.collection(INVITES_COLLECTION).doc(code).get();
+    if (!inviteSnap.exists) return code;
+  }
+  throw new Error('라운드 번호 생성에 실패했습니다. 다시 시도해 주세요.');
 }
 
 /**
- * 라운드 생성: rounds 문서 생성, 참가자(HOST) 추가, users/{uid}/roundIds 등록, 4자리 라운드 번호 부여
+ * 라운드 생성: rounds + HOST 참가자 + roundIds + invites/{roundNumber}
  */
 export async function createRound(
   uid: string,
@@ -312,7 +399,8 @@ export async function createRound(
   const db = firestore();
   const now = new Date();
   const roundRef = db.collection(ROUNDS_COLLECTION).doc();
-  const roundNumber = generateRoundNumber();
+  const roundNumber = await allocateRoundNumber();
+  const nowTs = firestore.Timestamp.fromDate(now);
 
   const roundData = {
     createdBy: uid,
@@ -331,13 +419,13 @@ export async function createRound(
     scheduledAt: input.scheduledAt
       ? firestore.Timestamp.fromDate(input.scheduledAt)
       : null,
-    createdAt: firestore.Timestamp.fromDate(now),
-    updatedAt: firestore.Timestamp.fromDate(now),
+    createdAt: nowTs,
+    updatedAt: nowTs,
   };
 
-  await roundRef.set(roundData);
-
-  const participantData = {
+  const batch = db.batch();
+  batch.set(roundRef, roundData);
+  batch.set(roundRef.collection(PARTICIPANTS).doc(uid), {
     uid,
     nickname: nickname ?? null,
     role: 'HOST',
@@ -346,16 +434,28 @@ export async function createRound(
     totalOut: 0,
     totalIn: 0,
     total: 0,
-    updatedAt: firestore.Timestamp.fromDate(now),
-  };
-  await roundRef.collection(PARTICIPANTS).doc(uid).set(participantData);
+    updatedAt: nowTs,
+  });
+  batch.set(
+    db.collection(USERS_COLLECTION).doc(uid).collection(ROUND_IDS).doc(roundRef.id),
+    { roundId: roundRef.id, createdAt: nowTs }
+  );
+  batch.set(db.collection(INVITES_COLLECTION).doc(roundNumber), {
+    roundId: roundRef.id,
+    createdBy: uid,
+    createdAt: nowTs,
+  });
+  batch.set(
+    db.collection(USERS_COLLECTION).doc(uid),
+    {
+      roundCount: firestore.FieldValue.increment(1),
+      updatedAt: nowTs,
+    },
+    { merge: true }
+  );
+  await batch.commit();
 
-  await db
-    .collection(USERS_COLLECTION)
-    .doc(uid)
-    .collection(ROUND_IDS)
-    .doc(roundRef.id)
-    .set({ roundId: roundRef.id });
+  userRoundsCache = null;
 
   return roundFromDoc(roundRef.id, {
     ...roundData,
@@ -403,14 +503,19 @@ export async function fetchRoundParticipants(roundId: string): Promise<RoundPart
 
 /**
  * 라운드 참가자 단건 조회 (rounds/{roundId}/participants/{uid})
+ * @param options.source 'server'면 네트워크 강제(확정 직후용). 목록은 기본 캐시 허용이 빠름.
  */
 export async function fetchRoundParticipant(
   roundId: string,
-  uid: string
+  uid: string,
+  options?: { source?: 'default' | 'server' }
 ): Promise<RoundParticipant | null> {
+  const preferServer = options?.source === 'server';
   const key = cacheKeyParticipant(roundId, uid);
-  const cached = participantCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (!preferServer) {
+    const cached = participantCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+  }
   const inFlight = participantInFlight.get(key);
   if (inFlight) return inFlight;
 
@@ -420,13 +525,15 @@ export async function fetchRoundParticipant(
     .collection(PARTICIPANTS)
     .doc(uid);
 
-  // 스코어 확정 직후에는 캐시가 최신이 아닐 수 있어 서버 우선으로 조회합니다.
-  // 오프라인 등으로 서버 조회가 실패하면 캐시 조회로 폴백합니다.
-  let doc: FirebaseFirestoreTypes.DocumentSnapshot;
   const promise = (async () => {
-    try {
-      doc = await ref.get({ source: 'server' });
-    } catch {
+    let doc: FirebaseFirestoreTypes.DocumentSnapshot;
+    if (preferServer) {
+      try {
+        doc = await ref.get({ source: 'server' });
+      } catch {
+        doc = await ref.get();
+      }
+    } else {
       doc = await ref.get();
     }
     if (!doc.exists || !doc.data()) return null;
@@ -1025,18 +1132,48 @@ export async function saveRoundScore(
       ...(h.ob != null && { ob: h.ob }),
     };
   });
-  await firestore()
+  const holesEntered = Object.values(holes).filter(
+    (h) => h && typeof h.strokes === 'number' && h.strokes > 0
+  ).length;
+  const now = firestore.Timestamp.now();
+  const batch = firestore().batch();
+  const scoreRef = firestore()
     .collection(ROUNDS_COLLECTION)
     .doc(roundId)
     .collection(SCORES)
-    .doc(uid)
-    .set(
-      { holes: payload, updatedAt: firestore.Timestamp.now() },
+    .doc(uid);
+  const participantRef = firestore()
+    .collection(ROUNDS_COLLECTION)
+    .doc(roundId)
+    .collection(PARTICIPANTS)
+    .doc(uid);
+  batch.set(
+    scoreRef,
+    { holes: payload, updatedAt: now },
+    { merge: true }
+  );
+  batch.set(
+    participantRef,
+    {
+      holesEntered,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+  // 진행중 표시를 위해 첫 입력 시 라운드 상태도 IN_PROGRESS로
+  if (holesEntered > 0) {
+    batch.set(
+      firestore().collection(ROUNDS_COLLECTION).doc(roundId),
+      { status: 'IN_PROGRESS', updatedAt: now },
       { merge: true }
     );
+  }
+  await batch.commit();
 
-  // Score 데이터가 갱신되므로 캐시를 즉시 무효화합니다.
   scoreCache.delete(cacheKeyScore(roundId, uid));
+  participantCache.delete(cacheKeyParticipant(roundId, uid));
+  roundCache.delete(cacheKeyRound(roundId));
+  userRoundsCache = null;
 }
 
 const HOLE_NOS_FRONT = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];

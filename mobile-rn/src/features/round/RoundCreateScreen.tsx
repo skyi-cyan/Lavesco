@@ -203,7 +203,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
       navigation.reset({ index: 0, routes: [{ name: 'RoundList' }] });
       Alert.alert(
         '라운드 생성 완료',
-        `라운드가 생성되었습니다.\n\n라운드 번호: ${round.roundNumber ?? '-'}`,
+        `라운드가 생성되었습니다.\n\n라운드 번호: ${round.roundNumber ?? '-'}\n(6자리 번호를 공유해 주세요)`,
         [{ text: '확인' }]
       );
     } catch (e) {

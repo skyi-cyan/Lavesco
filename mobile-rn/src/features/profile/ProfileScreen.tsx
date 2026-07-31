@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
-  Image,
   ActivityIndicator,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -88,13 +87,9 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
       <View style={styles.summaryCard}>
         <View style={styles.summaryRow}>
           <View style={styles.avatarWrapper}>
-            {profile?.photoURL ? (
-              <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={36} color="#999" />
-              </View>
-            )}
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="trophy" size={36} color="#f5c518" />
+            </View>
           </View>
           <View style={styles.summaryText}>
             <Text style={styles.summaryName}>{displayName}</Text>
@@ -279,9 +274,8 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 32,
     overflow: 'hidden',
-    backgroundColor: '#eee',
+    backgroundColor: '#fff9e6',
   },
-  avatar: { width: '100%', height: '100%' },
   avatarPlaceholder: {
     width: '100%',
     height: '100%',

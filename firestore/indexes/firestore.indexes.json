@@ -5,7 +5,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "hostUid",
+          "fieldPath": "createdBy",
           "order": "ASCENDING"
         },
         {
@@ -29,6 +29,20 @@
         {
           "fieldPath": "scheduledAt",
           "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "golfCourses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "region",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "name",
+          "order": "ASCENDING"
         }
       ]
     },

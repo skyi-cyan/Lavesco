@@ -6,9 +6,10 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
-  Linking,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import {
   fetchGolfCourse,
@@ -17,6 +18,8 @@ import {
 } from '../../core/services/courseService';
 import type { GolfCourse, GolfCourseCourse, GolfCourseHoleInput } from '../../core/types/course';
 import { TEE_KEYS } from '../../core/types/course';
+import type { CourseStackParamList } from '../../app/CourseStack';
+import { normalizeExternalUrl } from '../shared/CourseWebViewScreen';
 
 const HOLE_NUMBERS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const TEE_LABELS: Record<string, string> = { black: 'Black', blue: 'Blue', white: 'White', red: 'Red' };
@@ -26,19 +29,12 @@ function cellValue(n: number): string {
   return n === 0 ? '' : String(n);
 }
 
-function normalizeExternalUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
-  return `https://${trimmed}`;
-}
-
 export type CourseDetailParamList = {
   CourseDetail: { courseId: string; courseName?: string };
 };
 
-type CourseDetailRouteProp = RouteProp<CourseDetailParamList, 'CourseDetail'>;
+type CourseDetailRouteProp = RouteProp<CourseStackParamList, 'CourseDetail'>;
+type CourseDetailNav = NativeStackNavigationProp<CourseStackParamList, 'CourseDetail'>;
 
 type Props = {
   route: CourseDetailRouteProp;
@@ -46,21 +42,24 @@ type Props = {
 
 export function CourseDetailScreen({ route }: Props): React.JSX.Element {
   const { courseId } = route.params;
+  const navigation = useNavigation<CourseDetailNav>();
   const [golfCourse, setGolfCourse] = useState<GolfCourse | null>(null);
   const [courses, setCourses] = useState<GolfCourseCourse[]>([]);
   const [holesByCourse, setHolesByCourse] = useState<Record<string, Record<string, GolfCourseHoleInput>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const openExternalUrl = useCallback(async (value: string) => {
-    const normalized = normalizeExternalUrl(value);
-    if (!normalized) return;
-    try {
-      await Linking.openURL(normalized);
-    } catch {
-      setError('코스 URL을 열지 못했습니다.');
-    }
-  }, []);
+  const openExternalUrl = useCallback(
+    (value: string, title?: string) => {
+      const normalized = normalizeExternalUrl(value);
+      if (!normalized) return;
+      navigation.navigate('CourseWebView', {
+        url: normalized,
+        title: title ?? '코스 보기',
+      });
+    },
+    [navigation]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,7 +134,10 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
           {golfCourse.homepage ? (
             <View style={styles.infoRow}>
               <Text style={styles.label}>홈페이지: </Text>
-              <TouchableOpacity onPress={() => Linking.openURL(golfCourse.homepage!)} style={styles.linkWrap}>
+              <TouchableOpacity
+                onPress={() => openExternalUrl(golfCourse.homepage!, '홈페이지')}
+                style={styles.linkWrap}
+              >
                 <Text style={styles.link} numberOfLines={1}>{golfCourse.homepage}</Text>
               </TouchableOpacity>
             </View>
@@ -157,7 +159,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
                 <Text style={styles.courseName}>{course.name}</Text>
                 {course.courseUrl ? (
                   <TouchableOpacity
-                    onPress={() => openExternalUrl(course.courseUrl!)}
+                    onPress={() => openExternalUrl(course.courseUrl!, course.name)}
                     style={styles.courseLinkButton}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     activeOpacity={0.7}

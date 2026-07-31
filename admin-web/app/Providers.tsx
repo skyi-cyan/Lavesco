@@ -9,18 +9,18 @@ const LOGIN_PATH = '/login';
 function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
 
   useEffect(() => {
     if (loading) return;
     if (pathname === LOGIN_PATH) {
-      if (user) router.replace('/');
+      if (user && isAdmin) router.replace('/');
       return;
     }
-    if (!user) {
+    if (!user || !isAdmin) {
       router.replace(LOGIN_PATH);
     }
-  }, [user, loading, pathname, router]);
+  }, [user, isAdmin, loading, pathname, router]);
 
   if (loading) {
     return (
@@ -35,7 +35,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user && pathname !== LOGIN_PATH) {
+  if (pathname !== LOGIN_PATH && (!user || !isAdmin)) {
     return null;
   }
 

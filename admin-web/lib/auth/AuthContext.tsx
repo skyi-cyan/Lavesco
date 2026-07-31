@@ -27,8 +27,14 @@ function getAuthInstance() {
   return getAuth(app);
 }
 
+async function assertAdminUser(user: User): Promise<boolean> {
+  const token = await user.getIdTokenResult(true);
+  return token.claims.admin === true;
+}
+
 type AuthState = {
   user: User | null;
+  isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -39,6 +45,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,9 +54,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        setUser(null);
+        setIsAdmin(false);
+        setLoading(false);
+        return;
+      }
+      try {
+        const admin = await assertAdminUser(u);
+        if (!admin) {
+          await firebaseSignOut(auth);
+          setUser(null);
+          setIsAdmin(false);
+        } else {
+          setUser(u);
+          setIsAdmin(true);
+        }
+      } catch {
+        await firebaseSignOut(auth);
+        setUser(null);
+        setIsAdmin(false);
+      } finally {
+        setLoading(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -57,14 +85,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     const auth = getAuthInstance();
     if (!auth) throw new Error('Auth not initialized');
-    await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const admin = await assertAdminUser(cred.user);
+    if (!admin) {
+      await firebaseSignOut(auth);
+      throw new Error('관리자 권한이 없습니다. admin 클레임을 부여해 주세요.');
+    }
   };
 
   const signInWithGoogle = async () => {
     const auth = getAuthInstance();
     if (!auth) throw new Error('Auth not initialized');
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    const cred = await signInWithPopup(auth, provider);
+    const admin = await assertAdminUser(cred.user);
+    if (!admin) {
+      await firebaseSignOut(auth);
+      throw new Error('관리자 권한이 없습니다. admin 클레임을 부여해 주세요.');
+    }
   };
 
   const signOut = async () => {
@@ -74,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signIn, signInWithGoogle, signOut }}
+      value={{ user, isAdmin, loading, signIn, signInWithGoogle, signOut }}
     >
       {children}
     </AuthContext.Provider>

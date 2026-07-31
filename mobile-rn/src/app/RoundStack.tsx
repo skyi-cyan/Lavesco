@@ -4,12 +4,17 @@ import { RoundListScreen } from '../features/round/RoundListScreen';
 import { RoundCreateScreen } from '../features/round/RoundCreateScreen';
 import { RoundJoinScreen } from '../features/round/RoundJoinScreen';
 import { RoundDetailScreen } from '../features/round/RoundDetailScreen';
+import {
+  CourseWebViewScreen,
+  type CourseWebViewParams,
+} from '../features/shared/CourseWebViewScreen';
 
 export type RoundStackParamList = {
   RoundList: undefined;
   RoundCreate: undefined;
   RoundJoin: undefined;
   RoundDetail: { roundId: string };
+  CourseWebView: CourseWebViewParams;
 };
 
 const Stack = createNativeStackNavigator<RoundStackParamList>();
@@ -39,6 +44,11 @@ export function RoundStack(): React.JSX.Element {
         name="RoundDetail"
         component={RoundDetailScreen}
         options={{ title: '스코어 등록' }}
+      />
+      <Stack.Screen
+        name="CourseWebView"
+        component={CourseWebViewScreen}
+        options={{ title: '코스 보기' }}
       />
     </Stack.Navigator>
   );

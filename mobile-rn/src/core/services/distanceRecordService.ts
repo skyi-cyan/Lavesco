@@ -4,6 +4,7 @@ import type { DistanceRecord, DistanceRecordInput } from '../types/distanceRecor
 
 const USERS_COLLECTION = 'users';
 const DISTANCE_RECORDS = 'distanceRecords';
+const MAX_DISTANCE_RECORDS = 100;
 
 function toDate(value: FirebaseFirestoreTypes.Timestamp | Date | null | undefined): Date | null {
   if (!value) return null;
@@ -37,6 +38,7 @@ export async function fetchDistanceRecords(uid: string): Promise<DistanceRecord[
     .doc(uid)
     .collection(DISTANCE_RECORDS)
     .orderBy('recordedAt', 'desc')
+    .limit(MAX_DISTANCE_RECORDS)
     .get();
 
   return snap.docs.map((doc) => mapDoc(doc.id, doc.data()));

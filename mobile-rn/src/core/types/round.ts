@@ -8,7 +8,7 @@ export interface Round {
   id: string;
   createdBy: string;
   roundName: string | null;
-  roundNumber: string | null; // 4자리
+  roundNumber: string | null; // 6자리 (구버전 4자리 가능)
   golfCourseId: string;
   golfCourseName: string;
   frontCourseId: string;

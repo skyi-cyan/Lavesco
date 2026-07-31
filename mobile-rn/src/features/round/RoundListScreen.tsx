@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,16 @@ import {
   Modal,
   Pressable,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
-import { fetchUserRounds, fetchRoundParticipants, fetchRoundScore } from '../../core/services/roundService';
+import {
+  fetchUserRounds,
+  fetchRoundListItemMeta,
+} from '../../core/services/roundService';
 import type { Round } from '../../core/types/round';
 import type { RoundParticipant } from '../../core/types/round';
-import type { HoleScoreData } from '../../core/types/round';
 import type { RoundStackParamList } from '../../app/RoundStack';
 
 type Nav = NativeStackNavigationProp<RoundStackParamList, 'RoundList'>;
@@ -38,15 +41,30 @@ function formatDate(d: Date | null): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 홀 스코어가 하나라도 저장되었는지 (실제 입력된 타수: strokes > 0) */
-function hasAnyHoleScore(holes: Record<string, HoleScoreData>): boolean {
-  return Object.keys(holes).some((no) => {
-    const h = holes[no];
-    return h && typeof h.strokes === 'number' && h.strokes > 0;
-  });
-}
-
 const YEAR_START = 2026;
+const META_CONCURRENCY = 10;
+/** 탭 재진입 시 이 시간 안이면 전체 재조회 생략 */
+const FOCUS_RELOAD_MS = 60_000;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function runWorker() {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current]);
+    }
+  }
+  const n = Math.min(concurrency, Math.max(items.length, 1));
+  await Promise.all(new Array(n).fill(0).map(() => runWorker()));
+  return results;
+}
 
 function getRoundYear(r: Round): number {
   const d = r.scheduledAt ?? r.createdAt;
@@ -60,12 +78,24 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   const [selectedYear, setSelectedYear] = useState(defaultYear);
   const [yearModalVisible, setYearModalVisible] = useState(false);
   const [rounds, setRounds] = useState<Round[]>([]);
-  /** 라운드별 참가자 목록 (내 참가자 정보·진행중 판단용) */
-  const [participantsByRoundId, setParticipantsByRoundId] = useState<Record<string, RoundParticipant[]>>({});
-  /** 라운드별 uid별 스코어 (나 + 동반 참가자 포함, 진행중 판단용) */
-  const [scoreByRoundId, setScoreByRoundId] = useState<Record<string, Record<string, Record<string, HoleScoreData>>>>({});
+  /** 라운드별 내 참가자 정보 */
+  const [myParticipantByRoundId, setMyParticipantByRoundId] = useState<
+    Record<string, RoundParticipant | null>
+  >({});
+  /** 라운드별 본인 스코어 저장 여부 (진행중 뱃지) */
+  const [hasSavedScoreByRoundId, setHasSavedScoreByRoundId] = useState<
+    Record<string, boolean>
+  >({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const loadSeqRef = useRef(0);
+  const metaSeqRef = useRef(0);
+  const hasRoundsRef = useRef(false);
+  const lastLoadAtRef = useRef(0);
+  const metaLoadedYearsRef = useRef<Set<number>>(new Set());
+  const selectedYearRef = useRef(selectedYear);
+  selectedYearRef.current = selectedYear;
 
   const yearOptions = useMemo(() => {
     const end = currentYear >= YEAR_START ? currentYear : YEAR_START;
@@ -77,68 +107,117 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
     [rounds, selectedYear]
   );
 
-  const load = useCallback(async () => {
-    if (!user?.uid) {
-      setRounds([]);
-      setParticipantsByRoundId({});
-      setScoreByRoundId({});
-      setLoading(false);
-      return;
-    }
-    try {
-      const list = await fetchUserRounds(user.uid);
-      setRounds(list);
-      const participantsById: Record<string, RoundParticipant[]> = {};
-      const scoreById: Record<string, Record<string, Record<string, HoleScoreData>>> = {};
-      await Promise.all(
-        list.map(async (r) => {
-          const participants = await fetchRoundParticipants(r.id);
-          participantsById[r.id] = participants;
-          const scoresForRound: Record<string, Record<string, HoleScoreData>> = {};
-          await Promise.all(
-            participants.map(async (p) => {
-              const holes = await fetchRoundScore(r.id, p.uid);
-              scoresForRound[p.uid] = holes ?? {};
-            })
-          );
-          scoreById[r.id] = scoresForRound;
-        })
-      );
-      setParticipantsByRoundId(participantsById);
-      setScoreByRoundId(scoreById);
-    } catch {
-      setRounds([]);
-      setParticipantsByRoundId({});
-      setScoreByRoundId({});
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.uid]);
+  const loadMetaForYear = useCallback(
+    async (list: Round[], year: number) => {
+      if (!user?.uid) return;
+      const yearRounds = list.filter((r) => getRoundYear(r) === year);
+      const seq = ++metaSeqRef.current;
+      if (yearRounds.length === 0) {
+        if (seq === metaSeqRef.current) setMetaLoading(false);
+        return;
+      }
+      setMetaLoading(true);
+      try {
+        const metas = await mapWithConcurrency(yearRounds, META_CONCURRENCY, (r) =>
+          fetchRoundListItemMeta(r.id, user.uid, r.status)
+        );
+        if (seq !== metaSeqRef.current) return;
+        setMyParticipantByRoundId((prev) => {
+          const next = { ...prev };
+          yearRounds.forEach((r, i) => {
+            next[r.id] = metas[i].participant;
+          });
+          return next;
+        });
+        setHasSavedScoreByRoundId((prev) => {
+          const next = { ...prev };
+          yearRounds.forEach((r, i) => {
+            next[r.id] = metas[i].hasSavedScore;
+          });
+          return next;
+        });
+        metaLoadedYearsRef.current.add(year);
+      } finally {
+        if (seq === metaSeqRef.current) setMetaLoading(false);
+      }
+    },
+    [user?.uid]
+  );
+
+  const load = useCallback(
+    async (opts?: { force?: boolean }) => {
+      if (!user?.uid) {
+        hasRoundsRef.current = false;
+        setRounds([]);
+        setMyParticipantByRoundId({});
+        setHasSavedScoreByRoundId({});
+        setLoading(false);
+        setMetaLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const seq = ++loadSeqRef.current;
+      const showFullSpinner = !hasRoundsRef.current;
+      if (showFullSpinner) setLoading(true);
+
+      try {
+        const list = await fetchUserRounds(user.uid, { force: !!opts?.force });
+        if (seq !== loadSeqRef.current) return;
+        hasRoundsRef.current = list.length > 0;
+        lastLoadAtRef.current = Date.now();
+        setRounds(list);
+        setLoading(false);
+
+        if (opts?.force) {
+          metaLoadedYearsRef.current.clear();
+          setMyParticipantByRoundId({});
+          setHasSavedScoreByRoundId({});
+        }
+
+        if (list.length === 0) {
+          setMyParticipantByRoundId({});
+          setHasSavedScoreByRoundId({});
+          return;
+        }
+
+        await loadMetaForYear(list, selectedYearRef.current);
+      } catch {
+        if (seq !== loadSeqRef.current) return;
+        hasRoundsRef.current = false;
+        setRounds([]);
+        setMyParticipantByRoundId({});
+        setHasSavedScoreByRoundId({});
+      } finally {
+        if (seq === loadSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [user?.uid, loadMetaForYear]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      if (hasRoundsRef.current && now - lastLoadAtRef.current < FOCUS_RELOAD_MS) {
+        return;
+      }
+      load();
+    }, [load])
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      if (user?.uid) load();
-    });
-    return unsubscribe;
-  }, [navigation, load, user?.uid]);
+    if (!user?.uid || rounds.length === 0) return;
+    if (metaLoadedYearsRef.current.has(selectedYear)) return;
+    loadMetaForYear(rounds, selectedYear);
+  }, [selectedYear, rounds, user?.uid, loadMetaForYear]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    load();
+    load({ force: true });
   }, [load]);
-
-  const handleCreate = () => {
-    navigation.navigate('RoundCreate');
-  };
-
-  const handleJoin = () => {
-    navigation.navigate('RoundJoin');
-  };
 
   const openYearModal = () => setYearModalVisible(true);
   const closeYearModal = () => setYearModalVisible(false);
@@ -176,10 +255,18 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListHeaderComponent={
-          <TouchableOpacity style={styles.yearRow} onPress={openYearModal} activeOpacity={0.7}>
-            <Text style={styles.yearLabel}>{selectedYear}년</Text>
-            <Ionicons name="chevron-down" size={20} color="#666" />
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity style={styles.yearRow} onPress={openYearModal} activeOpacity={0.7}>
+              <Text style={styles.yearLabel}>{selectedYear}년</Text>
+              <Ionicons name="chevron-down" size={20} color="#666" />
+            </TouchableOpacity>
+            {metaLoading ? (
+              <View style={styles.metaLoadingRow}>
+                <ActivityIndicator size="small" color="#059669" />
+                <Text style={styles.metaLoadingText}>상태 불러오는 중…</Text>
+              </View>
+            ) : null}
+          </View>
         }
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -191,18 +278,19 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
             </Text>
             <Text style={styles.emptySub}>
               {rounds.length === 0
-                ? '라운드 만들기 또는 참여하기를 눌러 시작하세요.'
+                ? '홈에서 라운드 만들기 또는 참여하기로 시작하세요.'
                 : '다른 연도를 선택해 보세요.'}
             </Text>
           </View>
         }
         renderItem={({ item }) => {
-          const participants = participantsByRoundId[item.id] ?? [];
-          const myParticipant = participants.find((p) => p.uid === user?.uid) ?? null;
-          const scoresForRound = scoreByRoundId[item.id] ?? {};
+          const myParticipant = myParticipantByRoundId[item.id] ?? null;
           const isConfirmed = !!myParticipant?.scoreConfirmedAt;
-          const myTotal = myParticipant?.total != null && myParticipant.total > 0 ? myParticipant.total : null;
-          const hasAnySaved = participants.length > 0 && Object.values(scoresForRound).some((holes) => hasAnyHoleScore(holes));
+          const myTotal =
+            myParticipant?.total != null && myParticipant.total > 0
+              ? myParticipant.total
+              : null;
+          const hasAnySaved = !!hasSavedScoreByRoundId[item.id];
           const statusLabel = isConfirmed ? null : hasAnySaved ? '진행중' : '준비';
           return (
             <TouchableOpacity
@@ -212,7 +300,10 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
             >
               <View style={styles.cardRow}>
                 <Text style={styles.cardTitle} numberOfLines={1}>
-                  {item.roundName || `${item.frontCourseName || item.courseName}${item.backCourseName ? ` · ${item.backCourseName}` : ''}`}
+                  {item.roundName ||
+                    `${item.frontCourseName || item.courseName}${
+                      item.backCourseName ? ` · ${item.backCourseName}` : ''
+                    }`}
                 </Text>
                 {!isConfirmed && item.roundNumber ? (
                   <Text style={styles.cardRoundNo}>#{item.roundNumber}</Text>
@@ -239,24 +330,6 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           );
         }}
       />
-      <View style={styles.fabRow}>
-        <TouchableOpacity
-          style={[styles.fab, styles.fabJoin]}
-          onPress={handleJoin}
-          activeOpacity={0.9}
-        >
-          <Ionicons name="person-add" size={22} color="#fff" />
-          <Text style={styles.fabLabel}>참여하기</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={handleCreate}
-          activeOpacity={0.9}
-        >
-          <Ionicons name="add" size={28} color="#fff" />
-          <Text style={styles.fabLabel}>라운드 만들기</Text>
-        </TouchableOpacity>
-      </View>
 
       <Modal
         visible={yearModalVisible}
@@ -311,7 +384,15 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e5e5',
   },
   yearLabel: { fontSize: 17, fontWeight: '700', color: '#111' },
-  listContent: { padding: 16, paddingBottom: 100 },
+  metaLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingBottom: 8,
+  },
+  metaLoadingText: { fontSize: 12, color: '#64748b' },
+  listContent: { padding: 16, paddingBottom: 24 },
   listContentEmpty: { flexGrow: 1 },
   modalOverlay: {
     flex: 1,
@@ -324,90 +405,64 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    maxHeight: '70%',
+    borderRadius: 12,
+    paddingVertical: 8,
+    overflow: 'hidden',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#111',
-    marginBottom: 16,
-    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   modalYearRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: 14,
   },
-  modalYearRowSelected: {
-    backgroundColor: '#e8f5e9',
-  },
-  modalYearText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  modalYearTextSelected: {
-    fontWeight: '700',
-    color: '#0a0',
-  },
+  modalYearRowSelected: { backgroundColor: '#f0fdf4' },
+  modalYearText: { fontSize: 16, color: '#333' },
+  modalYearTextSelected: { fontWeight: '700', color: '#0a0' },
   empty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 48,
   },
-  emptyText: { fontSize: 16, color: '#666', marginTop: 12 },
-  emptySub: { fontSize: 14, color: '#999', marginTop: 4 },
+  emptyText: { marginTop: 12, fontSize: 16, fontWeight: '600', color: '#666' },
+  emptySub: { marginTop: 6, fontSize: 13, color: '#999', textAlign: 'center' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e5e5e5',
   },
-  cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#111', flex: 1 },
-  cardRoundNo: { fontSize: 13, color: '#0a0', fontWeight: '600' },
-  cardTotalScore: { fontSize: 15, color: '#0a0', fontWeight: '700' },
+  cardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#111' },
+  cardRoundNo: { fontSize: 13, fontWeight: '600', color: '#666' },
+  cardTotalScore: { fontSize: 15, fontWeight: '800', color: '#059669' },
   badge: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 8,
   },
-  badgeText: { fontSize: 12, fontWeight: '600', color: '#333' },
+  badgeText: { fontSize: 11, fontWeight: '700', color: '#333' },
   cardMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
+    justifyContent: 'space-between',
+    marginTop: 8,
     gap: 8,
   },
-  cardGolfCourse: { fontSize: 14, color: '#1a5f2a', fontWeight: '600', flex: 1 },
-  cardDate: { fontSize: 13, color: '#666' },
-  fabRow: {
-    position: 'absolute',
-    bottom: 24,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  fab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0a0',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  fabJoin: {
-    backgroundColor: '#1565c0',
-  },
-  fabLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  cardGolfCourse: { flex: 1, fontSize: 13, color: '#666' },
+  cardDate: { fontSize: 12, color: '#999' },
 });

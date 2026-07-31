@@ -16,7 +16,7 @@ import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchRoundByRoundNumber,
   joinRound,
-  fetchRoundParticipants,
+  fetchRoundParticipant,
 } from '../../core/services/roundService';
 import type { Round } from '../../core/types/round';
 import type { RoundStackParamList } from '../../app/RoundStack';
@@ -48,8 +48,8 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
 
   const handleSearch = async () => {
     const trimmed = roundNumber.trim().replace(/\D/g, '');
-    if (trimmed.length !== 4) {
-      setSearchError('4자리 숫자를 입력하세요.');
+    if (trimmed.length !== 6 && trimmed.length !== 4) {
+      setSearchError('6자리 라운드 번호를 입력하세요. (기존 라운드는 4자리)');
       setFoundRound(null);
       setAlreadyJoined(false);
       return;
@@ -66,8 +66,8 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
       }
       setFoundRound(round);
       if (user?.uid) {
-        const participants = await fetchRoundParticipants(round.id);
-        setAlreadyJoined(participants.some((p) => p.uid === user.uid));
+        const me = await fetchRoundParticipant(round.id, user.uid);
+        setAlreadyJoined(!!me);
       }
     } catch {
       setSearchError('검색 중 오류가 발생했습니다.');
@@ -115,18 +115,18 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
       <View style={styles.content}>
-        <Text style={styles.label}>라운드 번호 (4자리)</Text>
+        <Text style={styles.label}>라운드 번호 (6자리)</Text>
         <TextInput
           style={styles.input}
           value={roundNumber}
           onChangeText={(t) => {
-            setRoundNumber(t.replace(/\D/g, '').slice(0, 4));
+            setRoundNumber(t.replace(/\D/g, '').slice(0, 6));
             setSearchError(null);
           }}
-          placeholder="예: 1234"
+          placeholder="예: 123456"
           placeholderTextColor="#999"
           keyboardType="number-pad"
-          maxLength={4}
+          maxLength={6}
           editable={!searching}
         />
         {searchError ? <Text style={styles.errorText}>{searchError}</Text> : null}

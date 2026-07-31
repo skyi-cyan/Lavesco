@@ -1,16 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  fetchCourseAddRequests,
+  fetchCourseAddRequestsPage,
   updateCourseAddRequest,
+  COURSE_ADD_REQUESTS_PAGE_SIZE,
 } from '@/lib/courseRequests/courseRequestService';
 import type { CourseAddRequest } from '@/lib/courseRequests/types';
 import {
   COURSE_ADD_REQUEST_STATUSES,
   type CourseAddRequestStatus,
 } from '@/lib/courseRequests/types';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 
 function formatDate(v: unknown): string {
   if (v == null) return '-';
@@ -31,33 +33,67 @@ const STATUS_LABEL: Record<CourseAddRequestStatus, string> = {
 export default function CourseRequestsPage() {
   const [list, setList] = useState<CourseAddRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<
     Record<string, { status: CourseAddRequestStatus; adminReply: string; createdGolfCourseId: string }>
   >({});
+  const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchCourseAddRequests();
-      setList(data);
-      const next: typeof drafts = {};
-      data.forEach((r) => {
+  const applyDrafts = (items: CourseAddRequest[], replace: boolean) => {
+    setDrafts((prev) => {
+      const next = replace ? {} : { ...prev };
+      items.forEach((r) => {
         next[r.id] = {
           status: r.status ?? 'PENDING',
           adminReply: r.adminReply ?? '',
           createdGolfCourseId: r.createdGolfCourseId ?? '',
         };
       });
-      setDrafts(next);
+      return next;
+    });
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    lastDocRef.current = null;
+    try {
+      const page = await fetchCourseAddRequestsPage({ includeTotal: true });
+      setList(page.items);
+      lastDocRef.current = page.lastDoc;
+      setHasMore(page.hasMore);
+      setTotalCount(page.totalCount);
+      applyDrafts(page.items, true);
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러올 수 없습니다.');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loadingMore || !lastDocRef.current) return;
+    setLoadingMore(true);
+    setError('');
+    try {
+      const page = await fetchCourseAddRequestsPage({
+        startAfterDoc: lastDocRef.current,
+        includeTotal: false,
+      });
+      setList((prev) => [...prev, ...page.items]);
+      lastDocRef.current = page.lastDoc;
+      setHasMore(page.hasMore);
+      applyDrafts(page.items, false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '추가 목록을 불러오지 못했습니다.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore]);
 
   useEffect(() => {
     load();
@@ -106,7 +142,11 @@ export default function CourseRequestsPage() {
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-          앱 사용자가 보낸 골프장 등록 요청입니다. 코스 관리에서 골프장을 추가한 뒤, 상태와 답변을 저장하면 사용자가 앱에서 확인할 수 있습니다.
+          앱 사용자가 보낸 골프장 등록 요청입니다. 코스 관리에서 골프장을 추가한 뒤, 상태와 답변을 저장하면
+          사용자가 앱에서 확인할 수 있습니다.
+          {totalCount != null
+            ? ` (표시 ${list.length}건 · 전체 ${totalCount}건 · ${COURSE_ADD_REQUESTS_PAGE_SIZE}건씩)`
+            : ` (표시 ${list.length}건 · ${COURSE_ADD_REQUESTS_PAGE_SIZE}건씩)`}
         </p>
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-400">
@@ -244,6 +284,18 @@ export default function CourseRequestsPage() {
                 </div>
               );
             })}
+            {hasMore ? (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                >
+                  {loadingMore ? '불러오는 중…' : '더 보기'}
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </main>
