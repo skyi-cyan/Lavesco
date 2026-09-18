@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,6 +18,7 @@ import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchUserRounds,
   fetchRoundListItemMeta,
+  cancelRound,
 } from '../../core/services/roundService';
 import type { Round } from '../../core/types/round';
 import type { RoundParticipant } from '../../core/types/round';
@@ -89,6 +91,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [metaLoading, setMetaLoading] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const loadSeqRef = useRef(0);
   const metaSeqRef = useRef(0);
   const hasRoundsRef = useRef(false);
@@ -219,6 +222,54 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
     load({ force: true });
   }, [load]);
 
+  const handleCancelRound = useCallback(
+    (item: Round) => {
+      if (!user?.uid || item.createdBy !== user.uid) {
+        Alert.alert('취소 불가', '라운드 생성자(HOST)만 취소할 수 있습니다.');
+        return;
+      }
+      const myParticipant = myParticipantByRoundId[item.id] ?? null;
+      if (myParticipant?.scoreConfirmedAt) {
+        Alert.alert('취소 불가', '스코어가 확정된 라운드는 취소할 수 없습니다.');
+        return;
+      }
+
+      const title =
+        item.roundName ||
+        `${item.frontCourseName || item.courseName}${
+          item.backCourseName ? ` · ${item.backCourseName}` : ''
+        }`;
+
+      Alert.alert(
+        '라운드 취소',
+        `"${title}" 라운드를 취소할까요?\n참가자·스코어·초대 번호가 모두 삭제됩니다.`,
+        [
+          { text: '닫기', style: 'cancel' },
+          {
+            text: '취소하기',
+            style: 'destructive',
+            onPress: async () => {
+              setCancellingId(item.id);
+              try {
+                await cancelRound(item.id);
+                await load({ force: true });
+                Alert.alert('완료', '라운드가 취소되었습니다.');
+              } catch (e) {
+                Alert.alert(
+                  '취소 실패',
+                  (e as Error)?.message ?? '라운드 취소에 실패했습니다.'
+                );
+              } finally {
+                setCancellingId(null);
+              }
+            },
+          },
+        ]
+      );
+    },
+    [user?.uid, myParticipantByRoundId, load]
+  );
+
   const openYearModal = () => setYearModalVisible(true);
   const closeYearModal = () => setYearModalVisible(false);
   const selectYear = (year: number) => {
@@ -286,17 +337,23 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         renderItem={({ item }) => {
           const myParticipant = myParticipantByRoundId[item.id] ?? null;
           const isConfirmed = !!myParticipant?.scoreConfirmedAt;
+          const isHost = !!user?.uid && item.createdBy === user.uid;
+          const canCancel = isHost && !isConfirmed;
           const myTotal =
             myParticipant?.total != null && myParticipant.total > 0
               ? myParticipant.total
               : null;
           const hasAnySaved = !!hasSavedScoreByRoundId[item.id];
           const statusLabel = isConfirmed ? null : hasAnySaved ? '진행중' : '준비';
+          const isCancelling = cancellingId === item.id;
           return (
             <TouchableOpacity
-              style={styles.card}
+              style={[styles.card, isCancelling && styles.cardCancelling]}
               activeOpacity={0.7}
+              disabled={isCancelling}
               onPress={() => navigation.navigate('RoundDetail', { roundId: item.id })}
+              onLongPress={canCancel ? () => handleCancelRound(item) : undefined}
+              delayLongPress={450}
             >
               <View style={styles.cardRow}>
                 <Text style={styles.cardTitle} numberOfLines={1}>
@@ -309,7 +366,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
                   <Text style={styles.cardRoundNo}>#{item.roundNumber}</Text>
                 ) : null}
                 {isConfirmed && myTotal != null ? (
-                  <Text style={styles.cardTotalScore}>{myTotal}타</Text>
+                  <Text style={styles.cardTotalScore}>{myTotal}</Text>
                 ) : statusLabel ? (
                   <View style={[styles.badge, { backgroundColor: BADGE_BG[statusLabel] ?? '#eee' }]}>
                     <Text style={styles.badgeText}>{statusLabel}</Text>
@@ -326,6 +383,15 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
                   {formatDate(item.scheduledAt ?? item.createdAt)}
                 </Text>
               </View>
+              {canCancel ? (
+                <Text style={styles.cancelHint}>길게 눌러 라운드 취소</Text>
+              ) : null}
+              {isCancelling ? (
+                <View style={styles.cancellingRow}>
+                  <ActivityIndicator size="small" color="#c62828" />
+                  <Text style={styles.cancellingText}>취소 중…</Text>
+                </View>
+              ) : null}
             </TouchableOpacity>
           );
         }}
@@ -436,20 +502,22 @@ const styles = StyleSheet.create({
   emptySub: { marginTop: 6, fontSize: 13, color: '#999', textAlign: 'center' },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e5e5e5',
   },
+  cardCancelling: { opacity: 0.6 },
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  cardTitle: { flex: 1, fontSize: 16, fontWeight: '700', color: '#111' },
-  cardRoundNo: { fontSize: 13, fontWeight: '600', color: '#666' },
-  cardTotalScore: { fontSize: 15, fontWeight: '800', color: '#059669' },
+  cardTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#111' },
+  cardRoundNo: { fontSize: 12, fontWeight: '600', color: '#666' },
+  cardTotalScore: { fontSize: 20, fontWeight: '800', color: '#f97316' },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -460,9 +528,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
     gap: 8,
   },
-  cardGolfCourse: { flex: 1, fontSize: 13, color: '#666' },
+  cardGolfCourse: { flex: 1, fontSize: 13, fontWeight: '600', color: '#047857' },
   cardDate: { fontSize: 12, color: '#999' },
+  cancelHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#94a3b8',
+  },
+  cancellingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  cancellingText: { fontSize: 12, color: '#c62828' },
 });

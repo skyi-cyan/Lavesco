@@ -198,7 +198,8 @@ npm start -- --port 8082
 cd mobile-rn
 npm run android:keystore          # 최초 1회: 업로드 키스토어 생성
 # android/keystore.properties 비밀번호 입력
-npm run android:bundle:release    # dist/lavesco-1.0.1-internal.aab 생성
+npm run android:bundle:release    # dist/lavesco-1.0.5-production.aab 생성
+# 프로덕션 체크리스트: docs/GOOGLE_PLAY_PRODUCTION.md
 ```
 
 ## 프로젝트 구조

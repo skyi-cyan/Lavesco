@@ -33,6 +33,7 @@ import type { FirebaseFirestoreTypes } from '@react-native-firebase/firestore';
 import type { Round, RoundStatus, RoundParticipant, HoleScoreData } from '../types/round';
 import { fetchHolesUnderCourse } from './courseService';
 import type { GolfCourseHoleInput } from '../types/course';
+import { callCloudFunction } from './cloudFunctions';
 
 const ROUNDS_COLLECTION = 'rounds';
 const PARTICIPANTS = 'participants';
@@ -179,6 +180,7 @@ export async function fetchRoundByRoundNumber(roundNumber: string): Promise<Roun
     .collection(INVITES_COLLECTION)
     .doc(trimmed)
     .get();
+  // RN Firebase DocumentSnapshot.exists is boolean; some typings mark it oddly
   if (inviteSnap.exists) {
     const roundId = inviteSnap.data()?.roundId;
     if (typeof roundId === 'string' && roundId) {
@@ -240,17 +242,18 @@ export async function joinRound(
   const batch = db.batch();
   batch.set(participantRef, participantData, { merge: true });
   batch.set(roundIdRef, { roundId, createdAt: nowTs });
+  await batch.commit();
+
   if (isNewMembership) {
-    batch.set(
-      userRef,
-      {
+    try {
+      await userRef.update({
         roundCount: firestore.FieldValue.increment(1),
         updatedAt: nowTs,
-      },
-      { merge: true }
-    );
+      });
+    } catch {
+      // 프로필 없어도 참여는 성공
+    }
   }
-  await batch.commit();
 
   const verifySnap = await participantRef.get({ source: 'server' });
   if (!verifySnap.exists) {
@@ -376,93 +379,119 @@ export type CreateRoundInput = {
   scheduledAt?: Date | null;
 };
 
-/** 6자리 라운드 번호 생성 (100000~999999), invites 문서 기준 중복 회피 */
-async function allocateRoundNumber(): Promise<string> {
-  const db = firestore();
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const n = Math.floor(Math.random() * 900000) + 100000;
-    const code = String(n);
-    const inviteSnap = await db.collection(INVITES_COLLECTION).doc(code).get();
-    if (!inviteSnap.exists) return code;
-  }
-  throw new Error('라운드 번호 생성에 실패했습니다. 다시 시도해 주세요.');
+/** 6자리 라운드 번호 (100000~999999) — Cloud Function에서도 동일 규칙 */
+function parseIsoDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
+type CreateRoundCfResult = {
+  id: string;
+  roundNumber: string;
+  createdBy: string;
+  roundName: string | null;
+  golfCourseId: string;
+  golfCourseName: string;
+  frontCourseId: string;
+  frontCourseName: string;
+  backCourseId: string;
+  backCourseName: string;
+  courseId: string;
+  courseName: string;
+  teeTime: string | null;
+  status: RoundStatus;
+  scheduledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /**
- * 라운드 생성: rounds + HOST 참가자 + roundIds + invites/{roundNumber}
+ * 라운드 생성 (Cloud Function + Admin SDK).
+ * 클라이언트 직접 Firestore batch는 심사/권한 이슈가 있어 서버에서 생성합니다.
  */
 export async function createRound(
   uid: string,
   nickname: string | null,
   input: CreateRoundInput
 ): Promise<Round> {
-  const db = firestore();
-  const now = new Date();
-  const roundRef = db.collection(ROUNDS_COLLECTION).doc();
-  const roundNumber = await allocateRoundNumber();
-  const nowTs = firestore.Timestamp.fromDate(now);
+  if (!uid) {
+    throw new Error('로그인이 필요합니다. 다시 로그인한 뒤 시도해 주세요.');
+  }
 
-  const roundData = {
-    createdBy: uid,
+  const payload = {
     roundName: input.roundName ?? null,
-    roundNumber,
     golfCourseId: input.golfCourseId ?? '',
     golfCourseName: input.golfCourseName ?? '',
     frontCourseId: input.frontCourseId ?? '',
     frontCourseName: input.frontCourseName ?? '',
     backCourseId: input.backCourseId ?? '',
     backCourseName: input.backCourseName ?? '',
-    courseId: input.frontCourseId ?? '',
-    courseName: input.frontCourseName ?? '',
     teeTime: input.teeTime ?? null,
-    status: 'DRAFT' as const,
-    scheduledAt: input.scheduledAt
-      ? firestore.Timestamp.fromDate(input.scheduledAt)
-      : null,
-    createdAt: nowTs,
-    updatedAt: nowTs,
+    scheduledAt: input.scheduledAt ? input.scheduledAt.toISOString() : null,
+    nickname: nickname ?? null,
   };
 
-  const batch = db.batch();
-  batch.set(roundRef, roundData);
-  batch.set(roundRef.collection(PARTICIPANTS).doc(uid), {
-    uid,
-    nickname: nickname ?? null,
-    role: 'HOST',
-    joinStatus: 'JOINED',
-    holesEntered: 0,
-    totalOut: 0,
-    totalIn: 0,
-    total: 0,
-    updatedAt: nowTs,
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await callCloudFunction<typeof payload, CreateRoundCfResult>(
+        'createRound',
+        payload
+      );
+
+      userRoundsCache = null;
+
+      return {
+        id: result.id,
+        createdBy: result.createdBy || uid,
+        roundName: result.roundName ?? null,
+        roundNumber: result.roundNumber,
+        golfCourseId: result.golfCourseId ?? '',
+        golfCourseName: result.golfCourseName ?? '',
+        frontCourseId: result.frontCourseId ?? '',
+        frontCourseName: result.frontCourseName ?? '',
+        backCourseId: result.backCourseId ?? '',
+        backCourseName: result.backCourseName ?? '',
+        courseId: result.courseId ?? result.frontCourseId ?? '',
+        courseName: result.courseName ?? result.frontCourseName ?? '',
+        teeTime: result.teeTime ?? null,
+        status: result.status ?? 'DRAFT',
+        scheduledAt: parseIsoDate(result.scheduledAt),
+        createdAt: parseIsoDate(result.createdAt) ?? new Date(),
+        updatedAt: parseIsoDate(result.updatedAt) ?? new Date(),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 400);
+        });
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('라운드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+}
+
+/**
+ * HOST가 스코어 미확정 라운드 취소 (Cloud Function).
+ * 준비/진행중이며 참가자 전원 미확정일 때만 가능합니다.
+ */
+export async function cancelRound(roundId: string): Promise<void> {
+  const id = String(roundId ?? '').trim();
+  if (!id) {
+    throw new Error('라운드 ID가 필요합니다.');
+  }
+
+  await callCloudFunction<{ roundId: string }, { ok: boolean }>('cancelRound', {
+    roundId: id,
   });
-  batch.set(
-    db.collection(USERS_COLLECTION).doc(uid).collection(ROUND_IDS).doc(roundRef.id),
-    { roundId: roundRef.id, createdAt: nowTs }
-  );
-  batch.set(db.collection(INVITES_COLLECTION).doc(roundNumber), {
-    roundId: roundRef.id,
-    createdBy: uid,
-    createdAt: nowTs,
-  });
-  batch.set(
-    db.collection(USERS_COLLECTION).doc(uid),
-    {
-      roundCount: firestore.FieldValue.increment(1),
-      updatedAt: nowTs,
-    },
-    { merge: true }
-  );
-  await batch.commit();
 
   userRoundsCache = null;
-
-  return roundFromDoc(roundRef.id, {
-    ...roundData,
-    scheduledAt: roundData.scheduledAt,
-    createdAt: roundData.createdAt,
-    updatedAt: roundData.updatedAt,
-  } as Record<string, unknown>) as Round;
+  roundCache.delete(cacheKeyRound(id));
 }
 
 function participantFromDoc(id: string, data: Record<string, unknown>): RoundParticipant {

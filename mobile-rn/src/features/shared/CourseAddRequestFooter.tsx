@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   submitRequestBtn: {
-    backgroundColor: '#059669',
+    backgroundColor: '#f97316',
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',

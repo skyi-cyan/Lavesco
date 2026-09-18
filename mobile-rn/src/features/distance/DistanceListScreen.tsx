@@ -12,9 +12,10 @@ import {
   Animated,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
-import { GOLF_CLUBS, type GolfClubId } from '../../core/constants/golfClubs';
+import { DEFAULT_GOLF_CLUB_ID, GOLF_CLUBS, type GolfClubId } from '../../core/constants/golfClubs';
 import {
   deleteDistanceRecord,
   fetchDistanceRecords,
@@ -47,10 +48,12 @@ function formatDate(d: Date): string {
 
 export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const modalBottomPad = Math.max(insets.bottom, 12) + 20;
   const [records, setRecords] = useState<DistanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedClubId, setSelectedClubId] = useState<GolfClubId>('7i');
+  const [selectedClubId, setSelectedClubId] = useState<GolfClubId>(DEFAULT_GOLF_CLUB_ID);
   const [queriedClubId, setQueriedClubId] = useState<GolfClubId | null>(null);
   const [clubPickerOpen, setClubPickerOpen] = useState(false);
 
@@ -262,7 +265,10 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
               </View>
               <Text style={styles.distanceText}>{formatDistanceMeters(item.distanceMeters)}</Text>
             </View>
-            <Text style={styles.cardDate}>{formatDate(item.recordedAt)}</Text>
+            <View style={styles.cardMetaRow}>
+              <Text style={styles.cardDate}>{formatDate(item.recordedAt)}</Text>
+              <Text style={styles.cardHint}>길게 눌러 삭제</Text>
+            </View>
             {item.golfCourseName ? (
               <View style={styles.courseRow}>
                 <Ionicons name="flag-outline" size={14} color="#059669" />
@@ -271,7 +277,6 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
                 </Text>
               </View>
             ) : null}
-            <Text style={styles.cardHint}>길게 눌러 삭제</Text>
           </TouchableOpacity>
         )}
       />
@@ -287,12 +292,16 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={1}
           onPress={() => setClubPickerOpen(false)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+          <View
+            style={[styles.modalContent, { paddingBottom: modalBottomPad }]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>클럽 선택</Text>
             <FlatList
               data={GOLF_CLUBS}
               keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.modalListContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.modalRow}
@@ -381,7 +390,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#059669',
+    backgroundColor: '#f97316',
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -413,27 +422,35 @@ const styles = StyleSheet.create({
   emptySub: { marginTop: 6, fontSize: 14, color: '#999', textAlign: 'center' },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
   cardRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   clubBadge: {
     backgroundColor: '#ecfdf5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#a7f3d0',
   },
-  clubBadgeText: { fontSize: 14, fontWeight: '700', color: '#047857' },
-  distanceText: { fontSize: 24, fontWeight: '800', color: '#111' },
-  cardDate: { marginTop: 8, fontSize: 13, color: '#888' },
-  courseRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  courseText: { flex: 1, fontSize: 13, color: '#047857', fontWeight: '600' },
-  cardHint: { marginTop: 4, fontSize: 11, color: '#bbb' },
+  clubBadgeText: { fontSize: 13, fontWeight: '700', color: '#047857' },
+  distanceText: { fontSize: 20, fontWeight: '800', color: '#111' },
+  cardMetaRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  cardDate: { flexShrink: 1, fontSize: 12, color: '#888' },
+  courseRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  courseText: { flex: 1, fontSize: 12, color: '#047857', fontWeight: '600' },
+  cardHint: { fontSize: 11, color: '#bbb' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -444,8 +461,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '70%',
-    paddingBottom: 24,
   },
+  modalListContent: { paddingBottom: 8 },
   modalHandle: {
     alignSelf: 'center',
     width: 40,
@@ -478,7 +495,7 @@ const styles = StyleSheet.create({
     bottom: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#059669',
+    backgroundColor: '#f97316',
     paddingHorizontal: 18,
     paddingVertical: 14,
     borderRadius: 28,

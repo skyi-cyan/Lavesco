@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   searchButton: {
-    backgroundColor: '#1565c0',
+    backgroundColor: '#f97316',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',

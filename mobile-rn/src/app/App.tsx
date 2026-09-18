@@ -20,7 +20,11 @@ function AppRoot(): React.JSX.Element {
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <StatusBar
+        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
+        translucent
+        backgroundColor="transparent"
+      />
       <AuthProvider>
         <NavigationContainer>
           <RootNavigator />

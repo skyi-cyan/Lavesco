@@ -59,7 +59,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -96,8 +96,8 @@ android {
         applicationId "com.lavesco.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.0.4"
+        versionCode 16
+        versionName "1.0.15"
     }
     signingConfigs {
         debug {
@@ -127,6 +127,7 @@ android {
             }
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

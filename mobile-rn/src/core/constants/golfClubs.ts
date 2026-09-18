@@ -38,6 +38,9 @@ export const GOLF_CLUBS: GolfClubOption[] = [
   { id: 'putter', label: 'Putter' },
 ];
 
+/** 거리 기록·측정 화면 클럽 선택 기본값 */
+export const DEFAULT_GOLF_CLUB_ID: GolfClubId = 'driver';
+
 export function getGolfClubLabel(clubId: string): string {
   return GOLF_CLUBS.find((c) => c.id === clubId)?.label ?? clubId;
 }

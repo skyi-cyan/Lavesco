@@ -40,7 +40,12 @@ export const authService = {
   /** 이메일/비밀번호 로그인 */
   async signInWithEmail(email: string, password: string): Promise<FirebaseAuthTypes.UserCredential> {
     try {
-      return await auth().signInWithEmailAndPassword(email.trim(), password);
+      const credential = await auth().signInWithEmailAndPassword(email.trim(), password);
+      // Auth Console에서만 만든 심사용 계정도 users/{uid} 프로필이 있도록 보장
+      if (credential.user) {
+        await ensureUserProfile(credential.user, 'email');
+      }
+      return credential;
     } catch (e: unknown) {
       const err = e as { code?: string; message?: string };
       throw new Error(authErrorMessage(err.code ?? '', err.message));

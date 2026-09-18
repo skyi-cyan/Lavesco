@@ -14,11 +14,13 @@ import {
   Platform,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchGolfCourses } from '../../core/services/courseService';
 import { fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
 import { createRound } from '../../core/services/roundService';
+import { formatFirestoreUserMessage } from '../../core/utils/firestoreRetry';
 import type { GolfCourse } from '../../core/types/course';
 import type { GolfCourseCourse } from '../../core/types/course';
 import type { RoundStackParamList } from '../../app/RoundStack';
@@ -47,6 +49,8 @@ function formatScheduledDate(d: Date): string {
 
 export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   const { user, profile } = useAuth();
+  const insets = useSafeAreaInsets();
+  const modalBottomPad = Math.max(insets.bottom, 12) + 20;
   const [roundName, setRoundName] = useState('');
   const [golfCourseName, setGolfCourseName] = useState('');
   const [frontCourseNameDirect, setFrontCourseNameDirect] = useState('');
@@ -207,7 +211,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         [{ text: '확인' }]
       );
     } catch (e) {
-      const message = (e as Error)?.message ?? '라운드 생성에 실패했습니다.';
+      const message = formatFirestoreUserMessage(e, '라운드 생성에 실패했습니다.');
       Alert.alert('생성 실패', message);
     } finally {
       setCreating(false);
@@ -411,12 +415,16 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={1}
           onPress={() => setPickerOpen(null)}
         >
-          <View style={styles.modalContent}>
+          <View
+            style={[styles.modalContent, { paddingBottom: modalBottomPad }]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>전반코스 선택</Text>
             <FlatList
               data={courses}
               keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.modalListContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.modalRow}
@@ -444,12 +452,16 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={1}
           onPress={() => setPickerOpen(null)}
         >
-          <View style={styles.modalContent}>
+          <View
+            style={[styles.modalContent, { paddingBottom: modalBottomPad }]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>후반코스 선택</Text>
             <FlatList
               data={backCourseOptions}
               keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.modalListContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.modalRow}
@@ -477,12 +489,16 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={1}
           onPress={() => setPickerOpen(null)}
         >
-          <View style={styles.modalContent}>
+          <View
+            style={[styles.modalContent, { paddingBottom: modalBottomPad }]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>티타임 선택</Text>
             <FlatList
               data={TEE_TIME_OPTIONS}
               keyExtractor={(t) => t}
+              contentContainerStyle={styles.modalListContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.modalRow}
@@ -515,7 +531,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={1}
           onPress={() => setPickerOpen(null)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+          <View
+            style={[styles.modalContent, { paddingBottom: modalBottomPad }]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>날짜 선택</Text>
             <View style={styles.datePickerRow}>
@@ -697,7 +716,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '70%',
-    paddingBottom: 24,
+  },
+  modalListContent: {
+    paddingBottom: 8,
   },
   modalHandle: {
     width: 40,

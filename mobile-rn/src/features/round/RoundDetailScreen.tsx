@@ -13,7 +13,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import firestore from '@react-native-firebase/firestore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../../core/auth/AuthContext';
-import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
+import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore, cancelRound } from '../../core/services/roundService';
 import { grossStrokesForHole, playScoreSound } from '../../core/services/scoreSoundService';
 import { fetchHolesUnderCourse, fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
 import type { Round } from '../../core/types/round';
@@ -54,6 +54,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   const [currentHoleIndex, setCurrentHoleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   /** 현재 홀 입력 중인 값(미저장). 저장 버튼을 눌러야만 scoresByUid에 반영됨 */
   const [draftHoleScore, setDraftHoleScore] = useState<HoleScoreData>({ strokes: 0, putts: 0 });
@@ -383,11 +384,46 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
 
   const myParticipant = user?.uid ? participants.find((p) => p.uid === user.uid) : null;
   const isScoreConfirmed = !!myParticipant?.scoreConfirmedAt;
+  const isHost = !!user?.uid && !!round && round.createdBy === user.uid;
+  const anyScoreConfirmed = participants.some((p) => !!p.scoreConfirmedAt);
+  const canCancelRound =
+    isHost && !anyScoreConfirmed && round?.status !== 'FINISHED';
 
   /** 18홀 모두 저장된 경우에만 스코어 확정 버튼 활성화 */
   const all18HolesSaved =
     !!user?.uid &&
     ALL_HOLE_NUMBERS.every((no) => scoresByUid[user.uid]?.[no] !== undefined);
+
+  const handleCancelRound = useCallback(() => {
+    if (!roundId || !canCancelRound || cancelling) return;
+    Alert.alert(
+      '라운드 취소',
+      '이 라운드를 취소할까요?\n참가자·스코어·초대 번호가 모두 삭제됩니다.',
+      [
+        { text: '닫기', style: 'cancel' },
+        {
+          text: '취소하기',
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await cancelRound(roundId);
+              Alert.alert('완료', '라운드가 취소되었습니다.', [
+                { text: '확인', onPress: () => navigation.navigate('RoundList') },
+              ]);
+            } catch (e) {
+              Alert.alert(
+                '취소 실패',
+                (e as Error)?.message ?? '라운드 취소에 실패했습니다.'
+              );
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [roundId, canCancelRound, cancelling, navigation]);
 
   const handleConfirmScore = useCallback(async () => {
     if (!user?.uid || !roundId || confirming || isScoreConfirmed || !all18HolesSaved) return;
@@ -657,6 +693,19 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           )}
         </View>
       )}
+
+      {canCancelRound ? (
+        <TouchableOpacity
+          style={[styles.cancelRoundButton, cancelling && styles.cancelRoundButtonDisabled]}
+          onPress={handleCancelRound}
+          disabled={cancelling}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.cancelRoundButtonText}>
+            {cancelling ? '취소 중...' : '라운드 취소'}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Out / In / Total 합계 */}
       {user?.uid && (
@@ -1062,6 +1111,21 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   confirmBadgeText: { fontSize: 14, fontWeight: '600', color: '#1b5e20' },
+  cancelRoundButton: {
+    marginBottom: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ef9a9a',
+    backgroundColor: '#fff5f5',
+    alignItems: 'center',
+  },
+  cancelRoundButtonDisabled: { opacity: 0.6 },
+  cancelRoundButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c62828',
+  },
   tableWrap: {
     backgroundColor: '#fff',
     borderRadius: 8,

@@ -10,7 +10,7 @@ $googleServices = Join-Path $mobileRnRoot "android\app\google-services.json"
 $androidDir = Join-Path $mobileRnRoot "android"
 $aabOutput = Join-Path $mobileRnRoot "android\app\build\outputs\bundle\release\app-release.aab"
 $distDir = Join-Path $mobileRnRoot "dist"
-$distAab = Join-Path $distDir "lavesco-1.0.4-production.aab"
+$distAab = Join-Path $distDir "lavesco-1.0.15-production.aab"
 
 function Fail($message) {
     Write-Host "ERROR: $message" -ForegroundColor Red
@@ -40,9 +40,9 @@ npm install
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "Building release AAB (bundleRelease)..."
+Write-Host "Building release AAB (bundleRelease, no gradle clean — avoids CMake cache issues on Windows)..."
 Set-Location $androidDir
-& .\gradlew.bat clean bundleRelease
+& .\gradlew.bat bundleRelease
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not (Test-Path $aabOutput)) {
@@ -57,5 +57,5 @@ Write-Host "SUCCESS" -ForegroundColor Green
 Write-Host "  AAB: $distAab"
 Write-Host ""
 Write-Host "Upload to Google Play Console:"
-Write-Host "  Release > Testing > Internal testing > Create new release > Upload"
-Write-Host "See docs/GOOGLE_PLAY_INTERNAL_TESTING.md for full steps."
+Write-Host "  Release > Production > Create new release > Upload"
+Write-Host "See docs/GOOGLE_PLAY_PRODUCTION.md for full checklist."
