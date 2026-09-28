@@ -34,6 +34,7 @@ import type { Round, RoundStatus, RoundParticipant, HoleScoreData } from '../typ
 import { fetchHolesUnderCourse } from './courseService';
 import type { GolfCourseHoleInput } from '../types/course';
 import { callCloudFunction } from './cloudFunctions';
+import { grossStrokesForHole } from './scoreSoundService';
 
 const ROUNDS_COLLECTION = 'rounds';
 const PARTICIPANTS = 'participants';
@@ -513,6 +514,7 @@ function participantFromDoc(id: string, data: Record<string, unknown>): RoundPar
     girTotalCount: data.girTotalCount as number | undefined,
     firHitCount: data.firHitCount as number | undefined,
     firTotalCount: data.firTotalCount as number | undefined,
+    statsVersion: data.statsVersion as number | undefined,
   };
 }
 
@@ -582,6 +584,77 @@ export async function fetchRoundParticipant(
 const HOLE_NOS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18'];
 
 /**
+ * FIR·GIR 집계 기준 버전. 기준을 바꾸면 올려야 participants·userStats에 저장된 옛 집계가 다시 계산됨.
+ * 1(버전 필드 없음): GIR을 모든 홀 파4 기준(타수 − 퍼트 ≤ 2)으로 계산
+ * 2: GIR을 홀별 파 기준(타수 − 퍼트 ≤ 파 − 2)으로 계산
+ */
+const ROUND_STATS_VERSION = 2;
+const DEFAULT_PAR = 4;
+
+type ParLookup = (holeNo: string) => number;
+type HitCount = { hit: number; total: number };
+
+/** 라운드의 전반·후반 코스 홀 정보로 홀별 파 조회 함수 생성. 코스 정보를 못 불러오면 null */
+async function fetchParLookup(round: Round | null): Promise<ParLookup | null> {
+  if (!round?.golfCourseId || !round.frontCourseId) return null;
+  try {
+    const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
+    const backMap = round.backCourseId
+      ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
+      : new Map<string, GolfCourseHoleInput>();
+    return (no) => getParForHole(no, frontMap, backMap);
+  } catch {
+    return null;
+  }
+}
+
+/** FIR: 파4·파5 홀 중 Fairway 체크한 홀 수 / 파4·파5 홀 수 */
+function countFIR(holes: Record<string, HoleScoreData>, parOf: ParLookup): HitCount {
+  let hit = 0;
+  let total = 0;
+  for (const no of HOLE_NOS) {
+    const par = parOf(no);
+    if (par !== 4 && par !== 5) continue;
+    total += 1;
+    if (holes[no]?.fairway === true) hit += 1;
+  }
+  return { hit, total };
+}
+
+/** GIR: 그린에 올린 타수(타수 − 퍼트)가 (파 − 2) 이하인 홀 수 / 입력된 홀 수 */
+function countGIR(holes: Record<string, HoleScoreData>, parOf: ParLookup): HitCount {
+  let hit = 0;
+  let total = 0;
+  for (const no of HOLE_NOS) {
+    const h = holes[no];
+    if (!h || typeof h.putts !== 'number') continue;
+    const par = parOf(no);
+    const strokes = grossStrokesForHole(h.strokes, par);
+    total += 1;
+    if (strokes - h.putts <= par - 2) hit += 1;
+  }
+  return { hit, total };
+}
+
+/**
+ * 홈·MY 공통 FIR·GIR 집계.
+ * 코스 정보가 없으면 FIR은 계산하지 않고(null), GIR은 모든 홀을 파4로 간주.
+ */
+function countRoundHits(
+  holes: Record<string, HoleScoreData>,
+  parOf: ParLookup | null
+): { fir: HitCount | null; gir: HitCount } {
+  return {
+    fir: parOf ? countFIR(holes, parOf) : null,
+    gir: countGIR(holes, parOf ?? (() => DEFAULT_PAR)),
+  };
+}
+
+function toPct({ hit, total }: HitCount): number | null {
+  return total > 0 ? Math.round((hit / total) * 1000) / 10 : null;
+}
+
+/**
  * 사용자 확정 스코어 타수 목록 (스코어 확정된 라운드만, 18홀 total)
  * MY 화면 평균/최저 타수 계산용
  */
@@ -642,6 +715,7 @@ export async function fetchUserConfirmedRoundStats(
         .get();
       const d = doc.data() as Record<string, unknown> | undefined;
       if (!d) throw new Error('user confirmed stats doc has no data');
+      if (d.statsVersion !== ROUND_STATS_VERSION) throw new Error('user confirmed stats doc is outdated');
       const roundIds = Array.isArray(d.roundIds) ? (d.roundIds.filter((x): x is string => typeof x === 'string')) : [];
       const totals = Array.isArray(d.totals) ? (d.totals.filter((x): x is number => typeof x === 'number')) : [];
       const fir = typeof d.fir === 'number' ? d.fir : null;
@@ -705,6 +779,7 @@ export async function fetchUserConfirmedRoundStats(
 
   for (const { roundId, p } of confirmed) {
     if (
+      p.statsVersion === ROUND_STATS_VERSION &&
       typeof p.totalPutts === 'number' &&
       typeof p.girHitCount === 'number' &&
       typeof p.girTotalCount === 'number' &&
@@ -734,78 +809,37 @@ export async function fetchUserConfirmedRoundStats(
         const isFull18 = HOLE_NOS.every((no) => holes[no] != null);
         if (!isFull18) return null;
 
-        // GIR / PPR
         const totalPutts = HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0);
-        let localGirHit = 0;
-        let localGirTotal = 0;
-        for (const no of HOLE_NOS) {
-          const h = holes[no];
-          if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
-            localGirTotal += 1;
-            if (h.strokes - h.putts <= 2) localGirHit += 1;
-          }
-        }
+        const round = await fetchRound(cand.roundId).catch(() => null);
+        const { fir, gir } = countRoundHits(holes, await fetchParLookup(round));
 
-        // FIR (par4/5 + fairway=true)
-        let localFirHit = 0;
-        let localFirTotal = 0;
-        let firComputed = false;
+        // 옛 기준 라운드를 새 기준으로 backfill: 다음 HomeScreen 로딩부터 holes 조회를 줄입니다.
         try {
-          const round = await fetchRound(cand.roundId);
-          if (round?.golfCourseId && round.frontCourseId) {
-            const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
-            const backMap = round.backCourseId
-              ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
-              : new Map<string, GolfCourseHoleInput>();
-            for (const no of HOLE_NOS) {
-              const par = getParForHole(no, frontMap, backMap);
-              if (par !== 4 && par !== 5) continue;
-              localFirTotal += 1;
-              if (holes[no]?.fairway === true) localFirHit += 1;
-            }
-              firComputed = true;
-          }
-        } catch {
-          // 코스/par 조회 실패 시 FIR은 제외
-        }
-
-          // 기존 라운드에 대해 backfill: 다음 HomeScreen 로딩부터 holes 조회를 줄입니다.
-          try {
-            const participantRef = firestore()
-              .collection(ROUNDS_COLLECTION)
-              .doc(cand.roundId)
-              .collection(PARTICIPANTS)
-              .doc(uid);
-
-            await participantRef.set(
+          await firestore()
+            .collection(ROUNDS_COLLECTION)
+            .doc(cand.roundId)
+            .collection(PARTICIPANTS)
+            .doc(uid)
+            .set(
               {
                 totalPutts,
-                girHitCount: localGirHit,
-                girTotalCount: localGirTotal,
+                girHitCount: gir.hit,
+                girTotalCount: gir.total,
                 // FIR 계산 실패해도 0으로 backfill 하면 다음 Home 로딩에서 fallback(holes 조회)을 피할 수 있습니다.
-                firHitCount: localFirHit,
-                firTotalCount: localFirTotal,
+                firHitCount: fir?.hit ?? 0,
+                firTotalCount: fir?.total ?? 0,
+                statsVersion: ROUND_STATS_VERSION,
                 updatedAt: firestore.Timestamp.now(),
               },
               { merge: true }
             );
+          participantCache.delete(cacheKeyParticipant(cand.roundId, uid));
+        } catch {
+          // 권한/네트워크 이슈로 backfill 실패해도 사용자 체감 계산은 계속 진행합니다.
+          if (isDev) console.warn('[stats] backfill participant failed', { uid, roundId: cand.roundId });
+        }
 
-            participantCache.delete(cacheKeyParticipant(cand.roundId, uid));
-          } catch {
-            // 권한/네트워크 이슈로 backfill 실패해도 사용자 체감 계산은 계속 진행합니다.
-            if (isDev) console.warn('[stats] backfill participant failed', { uid, roundId: cand.roundId });
-          }
-
-        return {
-          roundId: cand.roundId,
-          total: cand.total,
-          totalPutts,
-          girHit: localGirHit,
-          girTotal: localGirTotal,
-          firHit: localFirHit,
-          firTotal: localFirTotal,
-          firComputed,
-        };
+        return { roundId: cand.roundId, total: cand.total, totalPutts, fir, gir };
       }
     );
 
@@ -815,18 +849,18 @@ export async function fetchUserConfirmedRoundStats(
       totals.push(r.total);
 
       pprTotalPutts += r.totalPutts;
-      girHit += r.girHit;
-      girTotal += r.girTotal;
-      if (r.firComputed) {
-        firHit += r.firHit;
-        firTotal += r.firTotal;
+      girHit += r.gir.hit;
+      girTotal += r.gir.total;
+      if (r.fir) {
+        firHit += r.fir.hit;
+        firTotal += r.fir.total;
       }
     }
   }
 
   const roundCount = includedRoundIds.length;
-  const fir = firTotal > 0 ? Math.round((firHit / firTotal) * 1000) / 10 : null;
-  const gir = girTotal > 0 ? Math.round((girHit / girTotal) * 1000) / 10 : null;
+  const fir = toPct({ hit: firHit, total: firTotal });
+  const gir = toPct({ hit: girHit, total: girTotal });
   const ppr = roundCount > 0 ? Math.round((pprTotalPutts / roundCount) * 10) / 10 : null;
 
   const result: UserConfirmedRoundStats = {
@@ -851,6 +885,7 @@ export async function fetchUserConfirmedRoundStats(
           fir,
           gir,
           ppr,
+          statsVersion: ROUND_STATS_VERSION,
           updatedAt: firestore.Timestamp.now(),
         },
         { merge: true }
@@ -874,109 +909,9 @@ export async function fetchUserConfirmedRoundStats(
   return result;
 }
 
-/**
- * FIR(레거시): fairway true인 홀 수 / fairway 입력된 홀 수, 백분율.
- * 최신 기준(FIR=파4/5 분모)은 fetchUserConfirmedRoundStats().fir 및 getFIRPctForRoundByPar45를 사용하세요.
- */
-export function computeFIR(scores: Record<string, HoleScoreData>[]): number | null {
-  let hit = 0;
-  let total = 0;
-  for (const holes of scores) {
-    for (const no of HOLE_NOS) {
-      const h = holes[no];
-      if (h && h.fairway != null) {
-        total += 1;
-        if (h.fairway) hit += 1;
-      }
-    }
-  }
-  if (total === 0) return null;
-  return Math.round((hit / total) * 1000) / 10;
-}
-
-/**
- * GIR(그린 적중율) 계산: 퍼팅수·스코어만 사용.
- * 그린 도달 타수 = strokes - putts. par 없으므로 par4 기준으로 2타 이내 도달 시 GIR.
- * 즉 (strokes - putts) <= 2 인 홀 비율을 백분율로 반환. 데이터 없으면 null.
- */
-export function computeGIR(scores: Record<string, HoleScoreData>[]): number | null {
-  let hit = 0;
-  let total = 0;
-  for (const holes of scores) {
-    for (const no of HOLE_NOS) {
-      const h = holes[no];
-      if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
-        total += 1;
-        const shotsToGreen = h.strokes - h.putts;
-        if (shotsToGreen <= 2) hit += 1;
-      }
-    }
-  }
-  if (total === 0) return null;
-  return Math.round((hit / total) * 1000) / 10;
-}
-
-/** 라운드당 퍼트 수 평균(PPR). 데이터 없으면 null */
-export function computePPR(scores: Record<string, HoleScoreData>[]): number | null {
-  if (scores.length === 0) return null;
-  const puttsPerRound = scores.map((holes) =>
-    HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0)
-  );
-  const sum = puttsPerRound.reduce((a, b) => a + b, 0);
-  return Math.round((sum / scores.length) * 10) / 10;
-}
-
 /** 라운드 1회 퍼팅 합계 */
 export function getPuttsForRound(holes: Record<string, HoleScoreData>): number {
   return HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0);
-}
-
-/** 라운드 1회 FIR(레거시): fairway true인 홀 수 / fairway 입력된 홀 수 */
-export function getFIRPctForRound(holes: Record<string, HoleScoreData>): number | null {
-  let hit = 0;
-  let total = 0;
-  for (const no of HOLE_NOS) {
-    const h = holes[no];
-    if (h && h.fairway != null) {
-      total += 1;
-      if (h.fairway) hit += 1;
-    }
-  }
-  if (total === 0) return null;
-  return Math.round((hit / total) * 1000) / 10;
-}
-
-/** 라운드 1회 FIR: 파4/파5 홀에서 FW 체크된 홀 수 / (파4+파5 홀 수) */
-export function getFIRPctForRoundByPar45(
-  holes: Record<string, HoleScoreData>,
-  frontMap: Map<string, GolfCourseHoleInput>,
-  backMap: Map<string, GolfCourseHoleInput>
-): number | null {
-  let hit = 0;
-  let total = 0;
-  for (const no of HOLE_NOS) {
-    const par = getParForHole(no, frontMap, backMap);
-    if (par !== 4 && par !== 5) continue;
-    total += 1;
-    if (holes[no]?.fairway === true) hit += 1;
-  }
-  if (total === 0) return null;
-  return Math.round((hit / total) * 1000) / 10;
-}
-
-/** 라운드 1회 GIR%(par4 기준 2타 이내 도달). 데이터 없으면 null */
-export function getGIRPctForRound(holes: Record<string, HoleScoreData>): number | null {
-  let hit = 0;
-  let total = 0;
-  for (const no of HOLE_NOS) {
-    const h = holes[no];
-    if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
-      total += 1;
-      if (h.strokes - h.putts <= 2) hit += 1;
-    }
-  }
-  if (total === 0) return null;
-  return Math.round((hit / total) * 1000) / 10;
 }
 
 export type RoundRecordRow = {
@@ -998,16 +933,15 @@ function getParForHole(
   backMap: Map<string, GolfCourseHoleInput>
 ): number {
   const n = parseInt(no, 10);
-  if (n <= 9) return frontMap.get(no)?.par ?? 4;
-  return backMap.get(String(n - 9))?.par ?? 4;
+  if (n <= 9) return frontMap.get(no)?.par ?? DEFAULT_PAR;
+  return backMap.get(String(n - 9))?.par ?? DEFAULT_PAR;
 }
 
-/** 라운드별 버디(-1)/파(0)/보기(+1) 홀 수 집계. par 정보 없으면 null 반환 */
+/** 라운드별 버디(-1)/파(0)/보기(+1) 홀 수 집계 */
 function getBirdieParBogeyCounts(
   holes: Record<string, HoleScoreData>,
-  frontMap: Map<string, GolfCourseHoleInput>,
-  backMap: Map<string, GolfCourseHoleInput>
-): { birdies: number; pars: number; bogeys: number } | null {
+  parOf: ParLookup
+): { birdies: number; pars: number; bogeys: number } {
   let birdies = 0;
   let pars = 0;
   let bogeys = 0;
@@ -1015,7 +949,7 @@ function getBirdieParBogeyCounts(
     const h = holes[no];
     const strokes = h?.strokes ?? 0;
     if (strokes <= 0) continue;
-    const par = getParForHole(no, frontMap, backMap);
+    const par = parOf(no);
     const toPar = strokes - par;
     if (toPar === -1) birdies += 1;
     else if (toPar === 0) pars += 1;
@@ -1050,30 +984,15 @@ export async function fetchUserRoundRecords(uid: string): Promise<RoundRecordRow
       const dateStr = d
         ? `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
         : '-';
-      let fwPct = getFIRPctForRound(holes);
-      const girPct = getGIRPctForRound(holes);
       const putts = getPuttsForRound(holes);
-
-      let birdies: number | null = null;
-      let pars: number | null = null;
-      let bogeys: number | null = null;
-      if (round?.golfCourseId && round?.frontCourseId) {
-        try {
-          const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
-          const backMap = round.backCourseId
-            ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
-            : new Map<string, GolfCourseHoleInput>();
-          fwPct = getFIRPctForRoundByPar45(holes, frontMap, backMap);
-          const counts = getBirdieParBogeyCounts(holes, frontMap, backMap);
-          if (counts) {
-            birdies = counts.birdies;
-            pars = counts.pars;
-            bogeys = counts.bogeys;
-          }
-        } catch {
-          // par 조회 실패 시 null 유지
-        }
-      }
+      const parOf = await fetchParLookup(round);
+      const { fir, gir } = countRoundHits(holes, parOf);
+      const fwPct = fir ? toPct(fir) : null;
+      const girPct = toPct(gir);
+      const counts = parOf ? getBirdieParBogeyCounts(holes, parOf) : null;
+      const birdies = counts?.birdies ?? null;
+      const pars = counts?.pars ?? null;
+      const bogeys = counts?.bogeys ?? null;
 
       return {
         dateStr,
@@ -1226,42 +1145,9 @@ export async function confirmRoundScore(
   const now = firestore.Timestamp.now();
   const { totalOut, totalIn, total } = computeTotals(holes);
 
-  // GIR / PPR: strokes & putts만으로 계산 가능
   const totalPutts = HOLE_NOS.reduce((sum, no) => sum + (holes[no]?.putts ?? 0), 0);
-  let girHitCount = 0;
-  let girTotalCount = 0;
-  for (const no of HOLE_NOS) {
-    const h = holes[no];
-    if (h && typeof h.strokes === 'number' && typeof h.putts === 'number' && h.strokes > 0) {
-      girTotalCount += 1;
-      if (h.strokes - h.putts <= 2) girHitCount += 1;
-    }
-  }
-
-  // FIR: par 4/5 + fairway=true
-  let firHitCount = 0;
-  let firTotalCount = 0;
-  try {
-    const round = await fetchRound(roundId);
-    if (round?.golfCourseId && round.frontCourseId) {
-      const frontMap = await fetchHolesUnderCourse(round.golfCourseId, round.frontCourseId);
-      const backMap = round.backCourseId
-        ? await fetchHolesUnderCourse(round.golfCourseId, round.backCourseId)
-        : new Map<string, GolfCourseHoleInput>();
-      let localFirHit = 0;
-      let localFirTotal = 0;
-      for (const no of HOLE_NOS) {
-        const par = getParForHole(no, frontMap, backMap);
-        if (par !== 4 && par !== 5) continue;
-        localFirTotal += 1;
-        if (holes[no]?.fairway === true) localFirHit += 1;
-      }
-      firHitCount = localFirHit;
-      firTotalCount = localFirTotal;
-    }
-  } catch {
-    // FIR 집계 실패 시 HomeScreen에서 fallback(기존 holes 계산)로 처리
-  }
+  const round = await fetchRound(roundId).catch(() => null);
+  const { fir, gir } = countRoundHits(holes, await fetchParLookup(round));
 
   await saveRoundScore(roundId, uid, holes);
 
@@ -1273,10 +1159,11 @@ export async function confirmRoundScore(
       totalIn,
       total,
       totalPutts,
-      girHitCount,
-      girTotalCount,
-      firHitCount,
-      firTotalCount,
+      girHitCount: gir.hit,
+      girTotalCount: gir.total,
+      firHitCount: fir?.hit ?? 0,
+      firTotalCount: fir?.total ?? 0,
+      statsVersion: ROUND_STATS_VERSION,
       scoreConfirmedAt: now,
       updatedAt: now,
     },

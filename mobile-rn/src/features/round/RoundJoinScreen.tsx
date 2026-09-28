@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
+  Pressable,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -22,6 +23,8 @@ import type { Round } from '../../core/types/round';
 import type { RoundStackParamList } from '../../app/RoundStack';
 
 type Props = NativeStackScreenProps<RoundStackParamList, 'RoundJoin'>;
+
+const CODE_LENGTH = 6;
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '준비',
@@ -45,6 +48,17 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
   const [foundRound, setFoundRound] = useState<Round | null>(null);
   const [alreadyJoined, setAlreadyJoined] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [codeFocused, setCodeFocused] = useState(false);
+  const codeInputRef = useRef<TextInput>(null);
+
+  // 다른 탭으로 이동하면 참여 화면을 닫아, 라운드 탭 복귀 시 목록이 보이도록 함
+  useEffect(() => {
+    const tabNavigation = navigation.getParent();
+    if (!tabNavigation) return;
+    return tabNavigation.addListener('blur', () => {
+      navigation.reset({ index: 0, routes: [{ name: 'RoundList' }] });
+    });
+  }, [navigation]);
 
   const handleSearch = async () => {
     const trimmed = roundNumber.trim().replace(/\D/g, '');
@@ -116,19 +130,37 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
     >
       <View style={styles.content}>
         <Text style={styles.label}>라운드 번호 (6자리)</Text>
-        <TextInput
-          style={styles.input}
-          value={roundNumber}
-          onChangeText={(t) => {
-            setRoundNumber(t.replace(/\D/g, '').slice(0, 6));
-            setSearchError(null);
-          }}
-          placeholder="예: 123456"
-          placeholderTextColor="#999"
-          keyboardType="number-pad"
-          maxLength={6}
-          editable={!searching}
-        />
+        <Pressable
+          style={styles.codeRow}
+          onPress={() => codeInputRef.current?.focus()}
+          disabled={searching}
+        >
+          {Array.from({ length: CODE_LENGTH }, (_, i) => {
+            const activeIndex = Math.min(roundNumber.length, CODE_LENGTH - 1);
+            const isActive = codeFocused && i === activeIndex;
+            return (
+              <View key={i} style={[styles.codeBox, isActive && styles.codeBoxActive]}>
+                <Text style={styles.codeDigit}>{roundNumber[i] ?? ''}</Text>
+              </View>
+            );
+          })}
+          <TextInput
+            ref={codeInputRef}
+            style={styles.hiddenInput}
+            value={roundNumber}
+            onChangeText={(t) => {
+              setRoundNumber(t.replace(/\D/g, '').slice(0, CODE_LENGTH));
+              setSearchError(null);
+            }}
+            onFocus={() => setCodeFocused(true)}
+            onBlur={() => setCodeFocused(false)}
+            keyboardType="number-pad"
+            maxLength={CODE_LENGTH}
+            editable={!searching}
+            autoFocus
+            caretHidden
+          />
+        </Pressable>
         {searchError ? <Text style={styles.errorText}>{searchError}</Text> : null}
 
         <TouchableOpacity
@@ -222,16 +254,32 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 8,
   },
-  input: {
+  codeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  codeBox: {
+    flex: 1,
+    aspectRatio: 1,
+    maxWidth: 56,
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 18,
-    color: '#111',
-    letterSpacing: 4,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codeBoxActive: {
+    borderColor: '#1565c0',
+    borderWidth: 1.5,
+  },
+  codeDigit: { fontSize: 22, fontWeight: '700', color: '#111' },
+  hiddenInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   errorText: {
     fontSize: 13,

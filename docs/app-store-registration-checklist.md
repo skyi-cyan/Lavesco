@@ -122,6 +122,7 @@ Apple App Store와 Google Play에 앱을 등록하기 위해 준비할 항목과
 - 핵심 사용자 시나리오(예: 라운드·스코어 등) 기준 **스크린샷 스토리보드** 5~8장을 정한다.
 - 로그인·유료 기능이 있으면 **심사용 데모 계정**과 테스트 절차를 문서로 남긴다.
 - **Google Play 내부 테스트**: [GOOGLE_PLAY_INTERNAL_TESTING.md](./GOOGLE_PLAY_INTERNAL_TESTING.md) — AAB 빌드·키스토어·Play Console 절차.
+- **Google Play 프로덕션 출시**: [GOOGLE_PLAY_PRODUCTION.md](./GOOGLE_PLAY_PRODUCTION.md) — 프로덕션 AAB·제출 체크리스트.
 
 ---
 

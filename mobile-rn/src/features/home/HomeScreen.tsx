@@ -118,8 +118,8 @@ export function HomeScreen(): React.JSX.Element {
       : null;
   const minScore = totals.length > 0 ? Math.min(...totals) : null;
 
-  const goCreate = () => navigation.navigate('Round', { screen: 'RoundCreate' });
-  const goJoin = () => navigation.navigate('Round', { screen: 'RoundJoin' });
+  const goCreate = () => navigation.navigate('Round', { screen: 'RoundCreate', initial: false });
+  const goJoin = () => navigation.navigate('Round', { screen: 'RoundJoin', initial: false });
 
   return (
     <View style={styles.container}>

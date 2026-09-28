@@ -43,10 +43,12 @@ export interface RoundParticipant {
   // ---- HomeScreen 통계 최적화를 위한 집계값 (옵션/하위호환) ----
   // 기존 데이터(새 필드 없음)는 fetchUserConfirmedRoundStats에서 fallback으로 계산합니다.
   totalPutts?: number; // 18홀 퍼팅 합
-  girHitCount?: number; // strokes-putts <= 2 인 홀 수
+  girHitCount?: number; // (타수 − 퍼트) <= (파 − 2) 인 홀 수
   girTotalCount?: number; // GIR 계산 분모(통상 18)
   firHitCount?: number; // par=4/5 홀 중 fairway=true인 홀 수
   firTotalCount?: number; // par=4/5 홀 수
+  /** 위 집계값의 계산 기준 버전. 현재 기준과 다르면 다시 계산함 */
+  statsVersion?: number;
 }
 
 /** 홀별 스코어 (rounds/{roundId}/scores/{uid} holes.{n}) */

@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
   inputError: { borderColor: '#c00' },
   errorText: { fontSize: 12, color: '#c00', marginBottom: 12 },
   primaryButton: {
-    backgroundColor: '#1a5f2a',
+    backgroundColor: '#f97316',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',

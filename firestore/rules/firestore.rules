@@ -129,7 +129,10 @@ service cloud.firestore {
           || isParticipant(roundId)
           || isHost(roundId)
           || hasAdminClaim();
-        allow write: if request.auth.uid == uid || isHost(roundId);
+        // create는 본인만 (라운드 생성·참여 시 isHost get 의존 제거)
+        allow create: if request.auth != null && request.auth.uid == uid;
+        allow update: if request.auth.uid == uid || isHost(roundId);
+        allow delete: if isHost(roundId) || request.auth.uid == uid;
       }
     }
     
@@ -140,12 +143,14 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.roundId is string
+        && request.resource.data.roundId.size() > 0
         && request.resource.data.keys().hasOnly([
           'roundId',
           'createdBy',
           'createdAt',
           'updatedAt'
         ]);
+      // 클라이언트는 생성만; 덮어쓰기 방지
       allow update, delete: if hasAdminClaim();
     }
     
@@ -179,8 +184,19 @@ service cloud.firestore {
     
     // 사용자 프로필
     match /users/{uid} {
+      // 라운드 생성 후 roundCount만 올리는 경우 (status 등 관리 필드는 변경 불가)
+      function userRoundCountBumpOnly() {
+        return isSignedIn()
+          && request.auth.uid == uid
+          && resource != null
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['roundCount', 'updatedAt']);
+      }
+
       allow read: if hasAdminClaim() || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if hasAdminClaim() || userSelfWriteValid(uid);
+      allow create, update: if hasAdminClaim()
+        || userSelfWriteValid(uid)
+        || userRoundCountBumpOnly();
       allow delete: if hasAdminClaim();
       
       match /userStats/{docId} {
@@ -194,6 +210,11 @@ service cloud.firestore {
       match /distanceRecords/{recordId} {
         allow read, write: if isSignedIn() && request.auth.uid == uid;
       }
+    }
+
+    // 메일 발송 큐 (Trigger Email 확장 / Admin SDK 전용 — 클라이언트 접근 금지)
+    match /mail/{mailId} {
+      allow read, write: if false;
     }
   }
 }

@@ -15,6 +15,10 @@ function authErrorMessage(code: string, message?: string): string {
   const map: Record<string, string> = {
     'auth/user-not-found': '등록되지 않은 이메일입니다.',
     'auth/wrong-password': '비밀번호가 잘못되었습니다.',
+    // 이메일 열거 보호가 켜진 프로젝트는 미가입·비밀번호 오류를 모두 이 코드로 반환
+    'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않습니다.',
+    'auth/invalid-login-credentials': '이메일 또는 비밀번호가 올바르지 않습니다.',
+    'auth/network-request-failed': '네트워크 연결을 확인한 뒤 다시 시도해주세요.',
     'auth/email-already-in-use': '이미 사용 중인 이메일입니다.',
     'auth/weak-password': '비밀번호는 최소 6자 이상이어야 합니다.',
     'auth/invalid-email': '유효하지 않은 이메일입니다.',

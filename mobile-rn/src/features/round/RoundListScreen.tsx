@@ -91,6 +91,8 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [metaLoading, setMetaLoading] = useState(false);
+  /** 한 번이라도 상태(타수·확정 여부)를 불러온 연도 — 그 전에는 카드 대신 스피너 표시 */
+  const [metaReadyYears, setMetaReadyYears] = useState<number[]>([]);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const loadSeqRef = useRef(0);
   const metaSeqRef = useRef(0);
@@ -141,7 +143,10 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         });
         metaLoadedYearsRef.current.add(year);
       } finally {
-        if (seq === metaSeqRef.current) setMetaLoading(false);
+        if (seq === metaSeqRef.current) {
+          setMetaLoading(false);
+          setMetaReadyYears((prev) => (prev.includes(year) ? prev : [...prev, year]));
+        }
       }
     },
     [user?.uid]
@@ -154,6 +159,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         setRounds([]);
         setMyParticipantByRoundId({});
         setHasSavedScoreByRoundId({});
+        setMetaReadyYears([]);
         setLoading(false);
         setMetaLoading(false);
         setRefreshing(false);
@@ -172,10 +178,9 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         setRounds(list);
         setLoading(false);
 
+        // 새로고침 시 기존 상태는 유지한 채 다시 불러와, 카드가 "준비" 상태로 깜빡이지 않게 함
         if (opts?.force) {
           metaLoadedYearsRef.current.clear();
-          setMyParticipantByRoundId({});
-          setHasSavedScoreByRoundId({});
         }
 
         if (list.length === 0) {
@@ -285,7 +290,9 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
     );
   }
 
-  if (loading) {
+  const waitingFirstMeta = roundsByYear.length > 0 && !metaReadyYears.includes(selectedYear);
+
+  if (loading || waitingFirstMeta) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#0a0" />

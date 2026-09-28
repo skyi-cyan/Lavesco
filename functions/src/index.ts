@@ -3,6 +3,10 @@ import * as admin from 'firebase-admin';
 
 admin.initializeApp();
 
+export { notifyCourseAddRequestCreated } from './notifications/notifyCourseAddRequest';
+export { createRound } from './rounds/createRound';
+export { cancelRound } from './rounds/cancelRound';
+
 // 초대 코드 생성
 export const generateInviteCode = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
