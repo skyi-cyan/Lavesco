@@ -5,29 +5,33 @@ import appleAuth from '@invertase/react-native-apple-authentication';
 import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import type { UserProfile, TermsAgreement } from '../types/userProfile';
 import { userProfileFromMap, userProfileToMap } from '../types/userProfile';
+import i18n from '../../i18n';
+import type { ko } from '../../i18n/locales/ko';
 
 const USERS_COLLECTION = 'users';
 
-/**
- * 인증 에러 메시지 변환 (Flutter _handleAuthException과 동일)
- */
+type AuthErrorKey = keyof typeof ko.auth.errors;
+
+const AUTH_ERROR_KEYS: Record<string, AuthErrorKey> = {
+  'auth/user-not-found': 'userNotFound',
+  'auth/wrong-password': 'wrongPassword',
+  // 이메일 열거 보호가 켜진 프로젝트는 미가입·비밀번호 오류를 모두 이 코드로 반환
+  'auth/invalid-credential': 'invalidCredential',
+  'auth/invalid-login-credentials': 'invalidCredential',
+  'auth/network-request-failed': 'network',
+  'auth/email-already-in-use': 'emailInUse',
+  'auth/weak-password': 'weakPassword',
+  'auth/invalid-email': 'invalidEmail',
+  'auth/user-disabled': 'userDisabled',
+  'auth/too-many-requests': 'tooManyRequests',
+  'auth/operation-not-allowed': 'operationNotAllowed',
+};
+
+/** Firebase 인증 에러 코드를 현재 언어 메시지로 변환 */
 function authErrorMessage(code: string, message?: string): string {
-  const map: Record<string, string> = {
-    'auth/user-not-found': '등록되지 않은 이메일입니다.',
-    'auth/wrong-password': '비밀번호가 잘못되었습니다.',
-    // 이메일 열거 보호가 켜진 프로젝트는 미가입·비밀번호 오류를 모두 이 코드로 반환
-    'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않습니다.',
-    'auth/invalid-login-credentials': '이메일 또는 비밀번호가 올바르지 않습니다.',
-    'auth/network-request-failed': '네트워크 연결을 확인한 뒤 다시 시도해주세요.',
-    'auth/email-already-in-use': '이미 사용 중인 이메일입니다.',
-    'auth/weak-password': '비밀번호는 최소 6자 이상이어야 합니다.',
-    'auth/invalid-email': '유효하지 않은 이메일입니다.',
-    'auth/user-disabled': '비활성화된 계정입니다.',
-    'auth/too-many-requests':
-      '너무 많은 시도가 있었습니다. 나중에 다시 시도해주세요.',
-    'auth/operation-not-allowed': '이 로그인 방법은 허용되지 않습니다.',
-  };
-  return map[code] ?? `인증 오류: ${message ?? code}`;
+  const key = AUTH_ERROR_KEYS[code];
+  if (key) return i18n.t(`auth.errors.${key}`);
+  return i18n.t('auth.errors.unknown', { message: message ?? code });
 }
 
 /**
@@ -91,11 +95,11 @@ export const authService = {
       await GoogleSignin.hasPlayServices();
       const signInResult = await GoogleSignin.signIn();
       if (!signInResult?.data?.user) {
-        throw new Error('Google 로그인이 취소되었습니다.');
+        throw new Error(i18n.t('auth.googleCancelled'));
       }
       const { idToken } = await GoogleSignin.getTokens();
       if (!idToken) {
-        throw new Error('Google 로그인 토큰을 가져올 수 없습니다.');
+        throw new Error(i18n.t('auth.googleNoToken'));
       }
       const googleCredential = auth.GoogleAuthProvider.credential(idToken);
       const userCredential = await auth().signInWithCredential(googleCredential);
@@ -105,7 +109,7 @@ export const authService = {
       return userCredential;
     } catch (e: unknown) {
       const err = e as Error;
-      throw new Error(err.message ?? 'Google 로그인 실패');
+      throw new Error(err.message ?? i18n.t('auth.googleFailed'));
     }
   },
 
@@ -122,7 +126,7 @@ export const authService = {
       });
       const { identityToken, fullName } = appleAuthRequestResponse;
       if (!identityToken) {
-        throw new Error('Apple 로그인이 취소되었습니다.');
+        throw new Error(i18n.t('auth.appleCancelled'));
       }
       const credential = auth.AppleAuthProvider.credential(identityToken);
       const userCredential = await auth().signInWithCredential(credential);
@@ -136,7 +140,7 @@ export const authService = {
       return userCredential;
     } catch (e: unknown) {
       const err = e as Error;
-      throw new Error(err.message ?? 'Apple 로그인 실패');
+      throw new Error(err.message ?? i18n.t('auth.appleFailed'));
     }
   },
 

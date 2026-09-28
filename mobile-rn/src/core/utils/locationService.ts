@@ -1,5 +1,6 @@
 import { Alert, Linking, PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
+import i18n from '../../i18n';
 
 export type GpsPoint = {
   latitude: number;
@@ -10,13 +11,13 @@ export type GpsPoint = {
 function geolocationErrorMessage(code: number): string {
   switch (code) {
     case 1:
-      return '위치 권한이 거부되었습니다.';
+      return i18n.t('location.permissionDenied');
     case 2:
-      return '위치를 사용할 수 없습니다. GPS를 켜 주세요.';
+      return i18n.t('location.positionUnavailable');
     case 3:
-      return '위치 신호 수신 시간이 초과되었습니다. 다시 시도해 주세요.';
+      return i18n.t('location.timeout');
     default:
-      return '위치를 가져오지 못했습니다.';
+      return i18n.t('location.unavailable');
   }
 }
 
@@ -29,10 +30,10 @@ export async function requestLocationPermission(): Promise<boolean> {
   const granted = await PermissionsAndroid.request(
     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
     {
-      title: '위치 권한',
-      message: '샷 시작점과 볼 위치를 측정하기 위해 위치 정보가 필요합니다.',
-      buttonPositive: '허용',
-      buttonNegative: '거부',
+      title: i18n.t('location.permissionTitle'),
+      message: i18n.t('location.permissionMessage'),
+      buttonPositive: i18n.t('location.allow'),
+      buttonNegative: i18n.t('location.deny'),
     }
   );
   return granted === PermissionsAndroid.RESULTS.GRANTED;
@@ -40,11 +41,11 @@ export async function requestLocationPermission(): Promise<boolean> {
 
 export function promptOpenSettings(): void {
   Alert.alert(
-    '위치 권한 필요',
-    '설정에서 위치 권한을 허용해 주세요.',
+    i18n.t('location.permissionRequired'),
+    i18n.t('location.openSettingsMessage'),
     [
-      { text: '취소', style: 'cancel' },
-      { text: '설정 열기', onPress: () => Linking.openSettings() },
+      { text: i18n.t('common.cancel'), style: 'cancel' },
+      { text: i18n.t('location.openSettings'), onPress: () => Linking.openSettings() },
     ]
   );
 }

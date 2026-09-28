@@ -14,6 +14,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { DEFAULT_GOLF_CLUB_ID, GOLF_CLUBS, type GolfClubId } from '../../core/constants/golfClubs';
 import { createDistanceRecord } from '../../core/services/distanceRecordService';
@@ -41,6 +42,7 @@ function formatLocalDateKey(d: Date): string {
 }
 
 export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -103,11 +105,11 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
         setEndPoint(point);
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : '위치를 가져오지 못했습니다.';
+      const message = e instanceof Error ? e.message : t('location.unavailable');
       if (message === 'LOCATION_PERMISSION_DENIED') {
         promptOpenSettings();
       } else {
-        Alert.alert('GPS 오류', message);
+        Alert.alert(t('distanceRecord.gpsError'), message);
       }
     } finally {
       setMeasuring(null);
@@ -140,15 +142,16 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
         roundDate: activeRound ? formatLocalDateKey(roundDay) : null,
       });
       const roundNote = activeRound?.golfCourseName
-        ? `\n(${activeRound.golfCourseName} 라운드에 연결됨)`
+        ? `\n${t('distanceRecord.linkedToRound', { course: activeRound.golfCourseName })}`
         : '';
+      const recordLabel = `${selectedClub.label} ${formatDistanceMeters(distanceMeters)}`;
       Alert.alert(
-        '저장 완료',
-        `${selectedClub.label} ${formatDistanceMeters(distanceMeters)} 기록이 저장되었습니다.${roundNote}`,
-        [{ text: '확인', onPress: () => navigation.goBack() }]
+        t('distanceRecord.savedTitle'),
+        `${t('distanceRecord.savedMessage', { record: recordLabel })}${roundNote}`,
+        [{ text: t('common.confirm'), onPress: () => navigation.goBack() }]
       );
     } catch {
-      Alert.alert('오류', '기록 저장에 실패했습니다.');
+      Alert.alert(t('common.error'), t('distanceRecord.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -164,25 +167,23 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
             <>
               <View style={styles.roundBannerHeader}>
                 <Ionicons name="flag" size={18} color="#059669" />
-                <Text style={styles.roundBannerTitle}>오늘 진행 중인 라운드</Text>
+                <Text style={styles.roundBannerTitle}>{t('distanceRecord.todayRound')}</Text>
               </View>
               <Text style={styles.roundBannerCourse}>{activeRound.golfCourseName}</Text>
-              <Text style={styles.roundBannerSub}>저장 시 이 라운드와 골프장명이 함께 기록됩니다.</Text>
+              <Text style={styles.roundBannerSub}>{t('distanceRecord.todayRoundHint')}</Text>
             </>
           ) : (
             <>
               <View style={styles.roundBannerHeader}>
                 <Ionicons name="information-circle-outline" size={18} color="#6b7280" />
-                <Text style={styles.roundBannerTitleMuted}>연결된 라운드 없음</Text>
+                <Text style={styles.roundBannerTitleMuted}>{t('distanceRecord.noRound')}</Text>
               </View>
-              <Text style={styles.roundBannerSubMuted}>
-                오늘 진행 중인 라운드가 있으면 골프장명이 자동으로 기록됩니다.
-              </Text>
+              <Text style={styles.roundBannerSubMuted}>{t('distanceRecord.noRoundHint')}</Text>
             </>
           )}
         </View>
 
-        <Text style={styles.sectionTitle}>클럽 선택</Text>
+        <Text style={styles.sectionTitle}>{t('distance.selectClub')}</Text>
         <TouchableOpacity
           style={styles.comboTrigger}
           onPress={() => setClubPickerOpen(true)}
@@ -192,14 +193,14 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
           <Ionicons name="chevron-down" size={18} color="#666" />
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>GPS 측정</Text>
+        <Text style={styles.sectionTitle}>{t('distanceRecord.gpsMeasure')}</Text>
 
         <View style={[styles.stepRow, { gap: stepGap }]}>
           <View style={[styles.stepCard, { width: stepCardWidth }]}>
             <View style={styles.stepHeader}>
               <Ionicons name="flag-outline" size={18} color="#059669" />
               <Text style={styles.stepTitle} numberOfLines={1}>
-                샷 시작 지점
+                {t('distanceRecord.startPointTitle')}
               </Text>
             </View>
             {startPoint ? (
@@ -211,7 +212,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
                 <Text style={styles.accuracyText}>{formatAccuracyMeters(startPoint.accuracy)}</Text>
               </>
             ) : (
-              <Text style={styles.coordPlaceholder}>아직 측정하지 않았습니다.</Text>
+              <Text style={styles.coordPlaceholder}>{t('distanceRecord.notMeasured')}</Text>
             )}
             <TouchableOpacity
               style={styles.measureBtn}
@@ -223,7 +224,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
               ) : (
                 <>
                   <Ionicons name="locate" size={16} color="#fff" />
-                  <Text style={styles.measureBtnText}>시작점</Text>
+                  <Text style={styles.measureBtnText}>{t('distanceRecord.startPoint')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -233,7 +234,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
             <View style={styles.stepHeader}>
               <Ionicons name="golf-outline" size={18} color="#059669" />
               <Text style={styles.stepTitle} numberOfLines={1}>
-                볼 위치
+                {t('distanceRecord.ballPosition')}
               </Text>
             </View>
             {endPoint ? (
@@ -245,7 +246,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
                 <Text style={styles.accuracyText}>{formatAccuracyMeters(endPoint.accuracy)}</Text>
               </>
             ) : (
-              <Text style={styles.coordPlaceholder}>시작점 측정 후 측정하세요.</Text>
+              <Text style={styles.coordPlaceholder}>{t('distanceRecord.measureStartFirst')}</Text>
             )}
             <TouchableOpacity
               style={[styles.measureBtn, !startPoint && styles.measureBtnDisabled]}
@@ -257,7 +258,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
               ) : (
                 <>
                   <Ionicons name="locate" size={16} color="#fff" />
-                  <Text style={styles.measureBtnText}>볼 위치</Text>
+                  <Text style={styles.measureBtnText}>{t('distanceRecord.ballPosition')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -265,7 +266,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.resultCard}>
-          <Text style={styles.resultLabel}>측정 거리</Text>
+          <Text style={styles.resultLabel}>{t('distanceRecord.measuredDistance')}</Text>
           <Text style={styles.resultValue}>
             {distanceMeters != null ? formatDistanceMeters(distanceMeters) : '-'}
           </Text>
@@ -278,7 +279,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
 
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.secondaryBtn} onPress={handleReset} disabled={saving}>
-            <Text style={styles.secondaryBtnText}>다시 측정</Text>
+            <Text style={styles.secondaryBtnText}>{t('distanceRecord.remeasure')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.primaryBtn, (!startPoint || !endPoint || saving) && styles.primaryBtnDisabled]}
@@ -288,7 +289,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.primaryBtnText}>저장</Text>
+              <Text style={styles.primaryBtnText}>{t('common.save')}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -310,7 +311,7 @@ export function DistanceRecordScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>클럽 선택</Text>
+            <Text style={styles.modalTitle}>{t('distance.selectClub')}</Text>
             <FlatList
               data={GOLF_CLUBS}
               keyExtractor={(item) => item.id}

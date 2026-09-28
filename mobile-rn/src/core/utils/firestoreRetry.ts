@@ -1,4 +1,5 @@
 import firestore from '@react-native-firebase/firestore';
+import i18n from '../../i18n';
 
 const TRANSIENT_FIRESTORE_CODES = new Set([
   'firestore/unavailable',
@@ -15,10 +16,10 @@ export function isTransientFirestoreError(error: unknown): boolean {
 export function formatFirestoreUserMessage(error: unknown, fallback: string): string {
   const code = (error as { code?: string })?.code ?? '';
   if (code === 'firestore/unavailable' || code === 'firestore/deadline-exceeded') {
-    return '서버에 일시적으로 연결할 수 없습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.';
+    return i18n.t('errors.serverUnavailable');
   }
   if (code === 'firestore/permission-denied') {
-    return '권한이 없습니다. 다시 로그인한 뒤 시도해 주세요.';
+    return i18n.t('errors.permissionDenied');
   }
   const message = (error as Error)?.message;
   return message && message.length > 0 ? message : fallback;

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { validateEmail, validatePassword } from '../../shared/utils/validators';
 import type { AuthStackParamList } from '../../app/AuthStack';
@@ -24,6 +25,7 @@ const GOOGLE_LOGIN_ENABLED = false;
 
 export function LoginScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
+  const { t } = useTranslation();
   const {
     signInWithEmail,
     signInWithGoogle,
@@ -40,7 +42,7 @@ export function LoginScreen(): React.JSX.Element {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const showError = (message: string) => {
-    Alert.alert('알림', message.replace(/^Error: /, ''));
+    Alert.alert(t('common.notice'), message.replace(/^Error: /, ''));
   };
 
   const handleEmailLogin = async () => {
@@ -98,12 +100,12 @@ export function LoginScreen(): React.JSX.Element {
         <View style={styles.iconBox}>
           <Text style={styles.icon}>⛳</Text>
         </View>
-        <Text style={styles.title}>로그인</Text>
-        <Text style={styles.subtitle}>골프 라운드를 시작하세요</Text>
+        <Text style={styles.title}>{t('auth.login')}</Text>
+        <Text style={styles.subtitle}>{t('auth.loginSubtitle')}</Text>
 
         <TextInput
           style={[styles.input, emailError && styles.inputError]}
-          placeholder="이메일"
+          placeholder={t('auth.email')}
           placeholderTextColor="#999"
           value={email}
           onChangeText={(t) => { setEmail(t); setEmailError(null); }}
@@ -116,7 +118,7 @@ export function LoginScreen(): React.JSX.Element {
 
         <TextInput
           style={[styles.input, passwordError && styles.inputError]}
-          placeholder="비밀번호"
+          placeholder={t('auth.password')}
           placeholderTextColor="#999"
           value={password}
           onChangeText={(t) => { setPassword(t); setPasswordError(null); }}
@@ -133,14 +135,14 @@ export function LoginScreen(): React.JSX.Element {
           {isLoading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.primaryButtonText}>로그인</Text>
+            <Text style={styles.primaryButtonText}>{t('auth.login')}</Text>
           )}
         </TouchableOpacity>
 
         {(GOOGLE_LOGIN_ENABLED || Platform.OS === 'ios') && (
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>또는</Text>
+            <Text style={styles.dividerText}>{t('auth.or')}</Text>
             <View style={styles.dividerLine} />
           </View>
         )}
@@ -151,7 +153,7 @@ export function LoginScreen(): React.JSX.Element {
             onPress={handleGoogleLogin}
             disabled={isLoading}
           >
-            <Text style={styles.socialButtonText}>Google로 로그인</Text>
+            <Text style={styles.socialButtonText}>{t('auth.googleLogin')}</Text>
           </TouchableOpacity>
         )}
 
@@ -161,17 +163,17 @@ export function LoginScreen(): React.JSX.Element {
             onPress={handleAppleLogin}
             disabled={isLoading}
           >
-            <Text style={styles.appleButtonText}>Apple로 로그인</Text>
+            <Text style={styles.appleButtonText}>{t('auth.appleLogin')}</Text>
           </TouchableOpacity>
         )}
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>계정이 없으신가요? </Text>
+          <Text style={styles.footerText}>{t('auth.noAccount')}</Text>
           <TouchableOpacity
             onPress={() => navigation.navigate('SignUp')}
             disabled={isLoading}
           >
-            <Text style={styles.footerLink}>회원가입</Text>
+            <Text style={styles.footerLink}>{t('auth.signUp')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

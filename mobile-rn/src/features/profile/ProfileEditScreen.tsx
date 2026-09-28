@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { updateUserProfile } from '../../core/services/profileService';
 import type { ProfileStackParamList } from '../../app/ProfileStack';
@@ -53,6 +54,7 @@ function raceWithTimeout<T>(
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileEdit'>;
 
 export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user, profile, refreshProfile } = useAuth();
   const [nickname, setNickname] = useState('');
   const [handicap, setHandicap] = useState('');
@@ -82,13 +84,13 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
     try {
       const handicapNum = handicap.trim() === '' ? null : parseFloat(handicap.trim());
       if (handicap.trim() !== '' && (Number.isNaN(handicapNum as number) || (handicapNum as number) < 0 || (handicapNum as number) > 54)) {
-        setError('핸디캡은 0~54 사이 숫자를 입력해주세요.');
+        setError(t('profileEdit.handicapInvalid'));
         setSaving(false);
         return;
       }
       const dobTrimmed = dateOfBirth.trim();
       if (dobTrimmed && !/^\d{4}-\d{2}-\d{2}$/.test(dobTrimmed)) {
-        setError('생년월일은 YYYY-MM-DD 형식으로 입력해주세요. (예: 1990-01-15)');
+        setError(t('profileEdit.birthDateInvalid'));
         setSaving(false);
         return;
       }
@@ -102,7 +104,7 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
       await raceWithTimeout(
         savePromise,
         SAVE_TIMEOUT_MS,
-        '저장 시간이 초과되었습니다. 네트워크를 확인해주세요.'
+        t('profileEdit.saveTimeout')
       );
 
       setSaving(false);
@@ -112,19 +114,19 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
       void savePromise?.catch(() => {});
       setSaving(false);
       const err = e as Error & { code?: string };
-      let message = err?.message ?? '저장에 실패했습니다.';
+      let message = err?.message ?? t('profileEdit.saveFailedMessage');
       if (err?.code === 'permission-denied' || err?.code === 'PERMISSION_DENIED' || message.includes('PERMISSION_DENIED')) {
-        message = '저장 권한이 없습니다. 로그아웃 후 다시 로그인해 주세요.';
+        message = t('profileEdit.permissionDenied');
       }
       setError(message);
-      Alert.alert('저장 실패', message);
+      Alert.alert(t('profileEdit.saveFailed'), message);
     }
   };
 
   if (!profile) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.subtitle}>프로필을 불러올 수 없습니다.</Text>
+        <Text style={styles.subtitle}>{t('profileEdit.loadFailed')}</Text>
       </View>
     );
   }
@@ -141,12 +143,12 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
-          <Text style={styles.label}>닉네임</Text>
+          <Text style={styles.label}>{t('auth.nickname')}</Text>
           <TextInput
             style={styles.input}
             value={nickname}
             onChangeText={setNickname}
-            placeholder="닉네임을 입력하세요"
+            placeholder={t('profileEdit.nicknamePlaceholder')}
             placeholderTextColor="#999"
             autoCapitalize="none"
             maxLength={20}
@@ -154,24 +156,24 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>주소</Text>
+          <Text style={styles.label}>{t('profileEdit.address')}</Text>
           <TextInput
             style={styles.input}
             value={address}
             onChangeText={setAddress}
-            placeholder="주소를 입력하세요"
+            placeholder={t('profileEdit.addressPlaceholder')}
             placeholderTextColor="#999"
             autoCapitalize="none"
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>생년월일</Text>
+          <Text style={styles.label}>{t('profileEdit.birthDate')}</Text>
           <TextInput
             style={styles.input}
             value={dateOfBirth}
             onChangeText={(text) => setDateOfBirth(formatDateOfBirthInput(text))}
-            placeholder="숫자만 입력 (예: 19900115)"
+            placeholder={t('profileEdit.birthDatePlaceholder')}
             placeholderTextColor="#999"
             keyboardType="number-pad"
             maxLength={10}
@@ -179,19 +181,19 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>핸디캡</Text>
+          <Text style={styles.label}>{t('profileEdit.handicap')}</Text>
           <TextInput
             style={styles.input}
             value={handicap}
             onChangeText={setHandicap}
-            placeholder="0~54 (비워두면 미설정)"
+            placeholder={t('profileEdit.handicapPlaceholder')}
             placeholderTextColor="#999"
             keyboardType="decimal-pad"
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>기본 티</Text>
+          <Text style={styles.label}>{t('auth.defaultTee')}</Text>
           <View style={styles.teeRow}>
             {DEFAULT_TEE_OPTIONS.map((opt) => (
               <TouchableOpacity
@@ -221,7 +223,7 @@ export function ProfileEditScreen({ navigation }: Props): React.JSX.Element {
           disabled={saving}
           activeOpacity={0.8}
         >
-          <Text style={styles.saveButtonText}>{saving ? '저장 중...' : '저장'}</Text>
+          <Text style={styles.saveButtonText}>{saving ? t('roundDetail.saving') : t('common.save')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>

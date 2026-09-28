@@ -2,6 +2,7 @@ import React from 'react';
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { HomeScreen } from '../features/home/HomeScreen';
 import { RoundStack, type RoundStackParamList } from './RoundStack';
 import { DistanceStack, type DistanceStackParamList } from './DistanceStack';
@@ -27,6 +28,7 @@ const tabIcons: Record<string, { focused: string; unfocused: string }> = {
 };
 
 export function MainTabs(): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -44,27 +46,27 @@ export function MainTabs(): React.JSX.Element {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: '홈', tabBarLabel: '홈' }}
+        options={{ title: t('nav.home'), tabBarLabel: t('nav.home') }}
       />
       <Tab.Screen
         name="Round"
         component={RoundStack}
-        options={{ title: '라운드', tabBarLabel: '라운드', headerShown: false }}
+        options={{ title: t('nav.round'), tabBarLabel: t('nav.round'), headerShown: false }}
       />
       <Tab.Screen
         name="Distance"
         component={DistanceStack}
-        options={{ title: '거리기록', tabBarLabel: '거리', headerShown: false }}
+        options={{ title: t('nav.distanceTitle'), tabBarLabel: t('nav.distance'), headerShown: false }}
       />
       <Tab.Screen
         name="Course"
         component={CourseStack}
-        options={{ title: '코스', tabBarLabel: '코스', headerShown: false }}
+        options={{ title: t('nav.course'), tabBarLabel: t('nav.course'), headerShown: false }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileStack}
-        options={{ title: 'MY', tabBarLabel: 'MY', headerShown: false }}
+        options={{ title: t('nav.my'), tabBarLabel: t('nav.my'), headerShown: false }}
       />
     </Tab.Navigator>
   );

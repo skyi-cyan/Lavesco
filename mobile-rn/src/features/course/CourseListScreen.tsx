@@ -13,24 +13,25 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Trans, useTranslation } from 'react-i18next';
 import { fetchGolfCourses } from '../../core/services/courseService';
 import type { CourseStackParamList } from '../../app/CourseStack';
 import type { GolfCourse } from '../../core/types/course';
 import { REGION_GROUPS, matchRegionGroup } from '../../core/constants/regions';
+import { DEFAULT_REGION_ID } from '../../core/constants/regions';
 import type { RegionGroupId } from '../../core/constants/regions';
-
-const DEFAULT_REGION: RegionGroupId = '수도권';
 
 type CourseListNav = NativeStackNavigationProp<CourseStackParamList, 'CourseList'>;
 
 export function CourseListScreen(): React.JSX.Element {
   const navigation = useNavigation<CourseListNav>();
+  const { t } = useTranslation();
   const [list, setList] = useState<GolfCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
-  const [selectedRegionId, setSelectedRegionId] = useState<RegionGroupId>(DEFAULT_REGION);
+  const [selectedRegionId, setSelectedRegionId] = useState<RegionGroupId>(DEFAULT_REGION_ID);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -40,12 +41,12 @@ export function CourseListScreen(): React.JSX.Element {
       const data = await fetchGolfCourses({ forceServer: isRefresh });
       setList(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '목록을 불러올 수 없습니다.');
+      setError(e instanceof Error ? e.message : t('courseList.loadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   // 탭 화면이 유지된 상태에서도 포커스를 다시 얻을 때 최신 목록을 다시 로드한다.
   useFocusEffect(
@@ -102,7 +103,7 @@ export function CourseListScreen(): React.JSX.Element {
         <View style={styles.searchInputWrap}>
           <TextInput
             style={styles.searchInput}
-            placeholder="골프장 이름, 지역, 주소 검색"
+            placeholder={t('courseList.searchPlaceholder')}
             placeholderTextColor="#999"
             value={searchText}
             onChangeText={setSearchText}
@@ -145,16 +146,17 @@ export function CourseListScreen(): React.JSX.Element {
                 selectedRegionId === r.id && styles.regionChipTextSelected,
               ]}
             >
-              {r.label}
+              {t(`regions.${r.labelKey}`)}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
-      <Text style={styles.countText}>
-        <Text style={styles.countNumber}>{filteredList.length}</Text>
-        <Text style={styles.countLabel}>개 / 총 </Text>
-        <Text style={styles.countNumber}>{list.length}</Text>
-        <Text style={styles.countLabel}>개</Text>
+      <Text style={[styles.countText, styles.countLabel]}>
+        <Trans
+          i18nKey="courseList.count"
+          values={{ shown: filteredList.length, total: list.length }}
+          components={{ n: <Text style={styles.countNumber} /> }}
+        />
       </Text>
     </View>
   );
@@ -167,13 +169,13 @@ export function CourseListScreen(): React.JSX.Element {
       {showLoadingInitial ? (
         <View style={styles.fillCenter}>
           <ActivityIndicator size="large" color="#0a0" />
-          <Text style={styles.loadingText}>골프장 목록 불러오는 중...</Text>
+          <Text style={styles.loadingText}>{t('courseList.loading')}</Text>
         </View>
       ) : showErrorInitial ? (
         <View style={styles.fillCenter}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={() => load()}>
-            <Text style={styles.retryText}>다시 시도</Text>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -193,24 +195,13 @@ export function CourseListScreen(): React.JSX.Element {
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
                 <Text style={styles.emptyText}>
-                  {list.length === 0
-                    ? '등록된 골프장이 없습니다.'
-                    : '검색·지역 조건에 맞는 골프장이 없습니다.'}
+                  {list.length === 0 ? t('courseList.empty') : t('courseList.noMatch')}
                 </Text>
                 <Text style={styles.emptySub}>
-                  {list.length === 0 ? (
-                    <>
-                      홈의{' '}
-                      <Text style={styles.emptyHighlight}>「코스추가 요청하기」</Text>
-                      로 요청해 주세요.
-                    </>
-                  ) : (
-                    <>
-                      찾는 코스가 없으면 홈의{' '}
-                      <Text style={styles.emptyHighlight}>「코스추가 요청하기」</Text>
-                      로 요청해 주세요.
-                    </>
-                  )}
+                  <Trans
+                    i18nKey={list.length === 0 ? 'courseList.emptyHint' : 'courseList.noMatchHint'}
+                    components={{ h: <Text style={styles.emptyHighlight} /> }}
+                  />
                 </Text>
               </View>
             }

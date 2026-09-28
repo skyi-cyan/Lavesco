@@ -12,13 +12,14 @@ import {
   Platform,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchRoundByRoundNumber,
   joinRound,
   fetchRoundParticipant,
 } from '../../core/services/roundService';
+import { formatTeeTime } from '../../core/constants/teeTimes';
 import type { Round } from '../../core/types/round';
 import type { RoundStackParamList } from '../../app/RoundStack';
 
@@ -26,11 +27,12 @@ type Props = NativeStackScreenProps<RoundStackParamList, 'RoundJoin'>;
 
 const CODE_LENGTH = 6;
 
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: '준비',
-  IN_PROGRESS: '진행 중',
-  FINISHED: '종료',
-};
+const KNOWN_STATUSES = ['DRAFT', 'IN_PROGRESS', 'FINISHED'] as const;
+type KnownStatus = (typeof KNOWN_STATUSES)[number];
+
+function isKnownStatus(status: string): status is KnownStatus {
+  return (KNOWN_STATUSES as readonly string[]).includes(status);
+}
 
 function formatDate(d: Date | null): string {
   if (!d) return '-';
@@ -41,6 +43,7 @@ function formatDate(d: Date | null): string {
 }
 
 export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user, profile } = useAuth();
   const [roundNumber, setRoundNumber] = useState('');
   const [searching, setSearching] = useState(false);
@@ -63,7 +66,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
   const handleSearch = async () => {
     const trimmed = roundNumber.trim().replace(/\D/g, '');
     if (trimmed.length !== 6 && trimmed.length !== 4) {
-      setSearchError('6자리 라운드 번호를 입력하세요. (기존 라운드는 4자리)');
+      setSearchError(t('roundJoin.invalidNumber'));
       setFoundRound(null);
       setAlreadyJoined(false);
       return;
@@ -75,7 +78,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
     try {
       const round = await fetchRoundByRoundNumber(trimmed);
       if (!round) {
-        setSearchError('라운드를 찾을 수 없습니다.');
+        setSearchError(t('roundJoin.notFound'));
         return;
       }
       setFoundRound(round);
@@ -84,7 +87,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
         setAlreadyJoined(!!me);
       }
     } catch {
-      setSearchError('검색 중 오류가 발생했습니다.');
+      setSearchError(t('roundJoin.searchError'));
     } finally {
       setSearching(false);
     }
@@ -96,15 +99,15 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
     try {
       await joinRound(foundRound.id, user.uid, profile?.nickname ?? null);
       Alert.alert(
-        '참여 완료',
-        '라운드에 참여했습니다.',
-        [{ text: '확인', onPress: () => navigation.replace('RoundDetail', { roundId: foundRound.id }) }]
+        t('roundJoin.joinedTitle'),
+        t('roundJoin.joinedMessage'),
+        [{ text: t('common.confirm'), onPress: () => navigation.replace('RoundDetail', { roundId: foundRound.id }) }]
       );
     } catch (e: unknown) {
       const err = e as { message?: string; code?: string };
-      const message = err?.message ?? '참여에 실패했습니다.';
+      const message = err?.message ?? t('roundJoin.joinFailedMessage');
       const code = err?.code ? ` (${err.code})` : '';
-      Alert.alert('참여 실패', `${message}${code}`);
+      Alert.alert(t('roundJoin.joinFailed'), `${message}${code}`);
     } finally {
       setJoining(false);
     }
@@ -117,7 +120,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.subtitle}>로그인이 필요합니다.</Text>
+        <Text style={styles.subtitle}>{t('common.loginRequired')}</Text>
       </View>
     );
   }
@@ -129,7 +132,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
       <View style={styles.content}>
-        <Text style={styles.label}>라운드 번호 (6자리)</Text>
+        <Text style={styles.label}>{t('roundJoin.numberLabel')}</Text>
         <Pressable
           style={styles.codeRow}
           onPress={() => codeInputRef.current?.focus()}
@@ -148,8 +151,8 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
             ref={codeInputRef}
             style={styles.hiddenInput}
             value={roundNumber}
-            onChangeText={(t) => {
-              setRoundNumber(t.replace(/\D/g, '').slice(0, CODE_LENGTH));
+            onChangeText={(text) => {
+              setRoundNumber(text.replace(/\D/g, '').slice(0, CODE_LENGTH));
               setSearchError(null);
             }}
             onFocus={() => setCodeFocused(true)}
@@ -172,7 +175,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
           {searching ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.searchButtonText}>검색</Text>
+            <Text style={styles.searchButtonText}>{t('roundJoin.search')}</Text>
           )}
         </TouchableOpacity>
 
@@ -198,23 +201,27 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
               </Text>
             </View>
             {foundRound.teeTime ? (
-              <Text style={styles.cardTeeTime}>티타임 {foundRound.teeTime}</Text>
+              <Text style={styles.cardTeeTime}>
+                {t('roundJoin.teeTime', { time: formatTeeTime(foundRound.teeTime) })}
+              </Text>
             ) : null}
             <View style={styles.cardStatusRow}>
               <Text style={styles.cardStatus}>
-                {STATUS_LABEL[foundRound.status] ?? foundRound.status}
+                {isKnownStatus(foundRound.status)
+                  ? t(`roundJoin.status.${foundRound.status}`)
+                  : foundRound.status}
               </Text>
             </View>
 
             {alreadyJoined ? (
               <>
-                <Text style={styles.alreadyJoinedText}>이미 참여 중인 라운드입니다.</Text>
+                <Text style={styles.alreadyJoinedText}>{t('roundJoin.alreadyJoined')}</Text>
                 <TouchableOpacity
                   style={styles.joinButton}
                   onPress={handleOpenRound}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.joinButtonText}>라운드 보기</Text>
+                  <Text style={styles.joinButtonText}>{t('roundJoin.viewRound')}</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -227,7 +234,7 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
                 {joining ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.joinButtonText}>참여하기</Text>
+                  <Text style={styles.joinButtonText}>{t('roundJoin.join')}</Text>
                 )}
               </TouchableOpacity>
             )}

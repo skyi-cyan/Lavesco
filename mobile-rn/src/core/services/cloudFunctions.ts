@@ -1,4 +1,6 @@
 import auth from '@react-native-firebase/auth';
+import i18n from '../../i18n';
+import { ko } from '../../i18n/locales/ko';
 
 const PROJECT_ID = 'scorecard-app-6f9bd';
 const REGION = 'us-central1';
@@ -10,6 +12,23 @@ type CallableError = {
   };
 };
 
+type ServerErrorKey = keyof typeof ko.serverErrors;
+
+/** Cloud Functions가 한국어 메시지로 응답하므로, 문구를 키로 역매핑해 현재 언어로 바꿔 보여줌 */
+const SERVER_MESSAGE_TO_KEY = new Map<string, ServerErrorKey>(
+  (Object.entries(ko.serverErrors) as [ServerErrorKey, string][]).map(([key, message]) => [
+    message,
+    key,
+  ])
+);
+
+function translateServerMessage(message: string | undefined, httpStatus: number): string {
+  const key = message ? SERVER_MESSAGE_TO_KEY.get(message) : undefined;
+  if (key) return i18n.t(`serverErrors.${key}`);
+  if (message && i18n.language === 'ko') return message;
+  return i18n.t('errors.serverError', { status: httpStatus });
+}
+
 /**
  * Firebase Callable HTTPS 호출 (네이티브 functions 모듈 없이 Auth 토큰으로 호출)
  */
@@ -19,7 +38,7 @@ export async function callCloudFunction<TRequest extends object, TResponse>(
 ): Promise<TResponse> {
   const user = auth().currentUser;
   if (!user) {
-    throw new Error('로그인이 필요합니다. 다시 로그인한 뒤 시도해 주세요.');
+    throw new Error(i18n.t('errors.loginRequired'));
   }
 
   const idToken = await user.getIdToken();
@@ -39,14 +58,11 @@ export async function callCloudFunction<TRequest extends object, TResponse>(
   };
 
   if (!response.ok || body.error) {
-    const message =
-      body.error?.message ||
-      `서버 오류 (${response.status}). 잠시 후 다시 시도해 주세요.`;
-    throw new Error(message);
+    throw new Error(translateServerMessage(body.error?.message, response.status));
   }
 
   if (body.result === undefined) {
-    throw new Error('서버 응답이 올바르지 않습니다.');
+    throw new Error(i18n.t('errors.invalidResponse'));
   }
 
   return body.result;

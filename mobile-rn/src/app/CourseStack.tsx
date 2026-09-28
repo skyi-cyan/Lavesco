@@ -1,5 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 import { CourseListScreen } from '../features/course/CourseListScreen';
 import { CourseDetailScreen } from '../features/course/CourseDetailScreen';
 import {
@@ -16,6 +17,7 @@ export type CourseStackParamList = {
 const Stack = createNativeStackNavigator<CourseStackParamList>();
 
 export function CourseStack(): React.JSX.Element {
+  const { t } = useTranslation();
   return (
     <Stack.Navigator
       screenOptions={{ headerShown: true }}
@@ -24,19 +26,19 @@ export function CourseStack(): React.JSX.Element {
       <Stack.Screen
         name="CourseList"
         component={CourseListScreen}
-        options={{ title: '코스' }}
+        options={{ title: t('nav.course') }}
       />
       <Stack.Screen
         name="CourseDetail"
         component={CourseDetailScreen}
         options={({ route }) => ({
-          title: route.params.courseName ?? '코스 상세',
+          title: route.params.courseName ?? t('nav.courseDetail'),
         })}
       />
       <Stack.Screen
         name="CourseWebView"
         component={CourseWebViewScreen}
-        options={{ title: '코스 보기' }}
+        options={{ title: t('nav.courseView') }}
       />
     </Stack.Navigator>
   );

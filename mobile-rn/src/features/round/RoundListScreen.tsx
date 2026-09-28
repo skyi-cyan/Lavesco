@@ -14,6 +14,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchUserRounds,
@@ -30,9 +31,11 @@ type Props = {
   navigation: Nav;
 };
 
-const BADGE_BG: Record<string, string> = {
-  준비: '#e0e0e0',
-  진행중: '#c8e6c9',
+type RoundBadge = 'ready' | 'inProgress';
+
+const BADGE_BG: Record<RoundBadge, string> = {
+  ready: '#e0e0e0',
+  inProgress: '#c8e6c9',
 };
 
 function formatDate(d: Date | null): string {
@@ -74,6 +77,7 @@ function getRoundYear(r: Round): number {
 }
 
 export function RoundListScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const currentYear = new Date().getFullYear();
   const defaultYear = currentYear >= YEAR_START ? currentYear : YEAR_START;
@@ -230,12 +234,12 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   const handleCancelRound = useCallback(
     (item: Round) => {
       if (!user?.uid || item.createdBy !== user.uid) {
-        Alert.alert('취소 불가', '라운드 생성자(HOST)만 취소할 수 있습니다.');
+        Alert.alert(t('roundList.cannotCancel'), t('roundList.hostOnly'));
         return;
       }
       const myParticipant = myParticipantByRoundId[item.id] ?? null;
       if (myParticipant?.scoreConfirmedAt) {
-        Alert.alert('취소 불가', '스코어가 확정된 라운드는 취소할 수 없습니다.');
+        Alert.alert(t('roundList.cannotCancel'), t('roundList.confirmedCannotCancel'));
         return;
       }
 
@@ -246,23 +250,23 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         }`;
 
       Alert.alert(
-        '라운드 취소',
-        `"${title}" 라운드를 취소할까요?\n참가자·스코어·초대 번호가 모두 삭제됩니다.`,
+        t('roundList.cancelTitle'),
+        t('roundList.cancelConfirm', { title }),
         [
-          { text: '닫기', style: 'cancel' },
+          { text: t('common.close'), style: 'cancel' },
           {
-            text: '취소하기',
+            text: t('roundList.cancelAction'),
             style: 'destructive',
             onPress: async () => {
               setCancellingId(item.id);
               try {
                 await cancelRound(item.id);
                 await load({ force: true });
-                Alert.alert('완료', '라운드가 취소되었습니다.');
+                Alert.alert(t('common.done'), t('roundList.cancelled'));
               } catch (e) {
                 Alert.alert(
-                  '취소 실패',
-                  (e as Error)?.message ?? '라운드 취소에 실패했습니다.'
+                  t('roundList.cancelFailed'),
+                  (e as Error)?.message ?? t('roundList.cancelFailedMessage')
                 );
               } finally {
                 setCancellingId(null);
@@ -272,7 +276,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         ]
       );
     },
-    [user?.uid, myParticipantByRoundId, load]
+    [user?.uid, myParticipantByRoundId, load, t]
   );
 
   const openYearModal = () => setYearModalVisible(true);
@@ -285,7 +289,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.subtitle}>로그인이 필요합니다.</Text>
+        <Text style={styles.subtitle}>{t('common.loginRequired')}</Text>
       </View>
     );
   }
@@ -315,13 +319,13 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         ListHeaderComponent={
           <View>
             <TouchableOpacity style={styles.yearRow} onPress={openYearModal} activeOpacity={0.7}>
-              <Text style={styles.yearLabel}>{selectedYear}년</Text>
+              <Text style={styles.yearLabel}>{t('common.year', { year: selectedYear })}</Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
             {metaLoading ? (
               <View style={styles.metaLoadingRow}>
                 <ActivityIndicator size="small" color="#059669" />
-                <Text style={styles.metaLoadingText}>상태 불러오는 중…</Text>
+                <Text style={styles.metaLoadingText}>{t('roundList.loadingStatus')}</Text>
               </View>
             ) : null}
           </View>
@@ -331,13 +335,13 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
             <Ionicons name="flag-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>
               {rounds.length === 0
-                ? '참여 중인 라운드가 없습니다.'
-                : `${selectedYear}년 라운드가 없습니다.`}
+                ? t('roundList.empty')
+                : t('roundList.emptyYear', { year: selectedYear })}
             </Text>
             <Text style={styles.emptySub}>
               {rounds.length === 0
-                ? '홈에서 라운드 만들기 또는 참여하기로 시작하세요.'
-                : '다른 연도를 선택해 보세요.'}
+                ? t('roundList.emptyHint')
+                : t('roundList.emptyYearHint')}
             </Text>
           </View>
         }
@@ -351,7 +355,11 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
               ? myParticipant.total
               : null;
           const hasAnySaved = !!hasSavedScoreByRoundId[item.id];
-          const statusLabel = isConfirmed ? null : hasAnySaved ? '진행중' : '준비';
+          const statusBadge: RoundBadge | null = isConfirmed
+            ? null
+            : hasAnySaved
+              ? 'inProgress'
+              : 'ready';
           const isCancelling = cancellingId === item.id;
           return (
             <TouchableOpacity
@@ -374,9 +382,9 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
                 ) : null}
                 {isConfirmed && myTotal != null ? (
                   <Text style={styles.cardTotalScore}>{myTotal}</Text>
-                ) : statusLabel ? (
-                  <View style={[styles.badge, { backgroundColor: BADGE_BG[statusLabel] ?? '#eee' }]}>
-                    <Text style={styles.badgeText}>{statusLabel}</Text>
+                ) : statusBadge ? (
+                  <View style={[styles.badge, { backgroundColor: BADGE_BG[statusBadge] }]}>
+                    <Text style={styles.badgeText}>{t(`roundList.badge.${statusBadge}`)}</Text>
                   </View>
                 ) : null}
               </View>
@@ -391,12 +399,12 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
                 </Text>
               </View>
               {canCancel ? (
-                <Text style={styles.cancelHint}>길게 눌러 라운드 취소</Text>
+                <Text style={styles.cancelHint}>{t('roundList.longPressCancel')}</Text>
               ) : null}
               {isCancelling ? (
                 <View style={styles.cancellingRow}>
                   <ActivityIndicator size="small" color="#c62828" />
-                  <Text style={styles.cancellingText}>취소 중…</Text>
+                  <Text style={styles.cancellingText}>{t('roundList.cancelling')}</Text>
                 </View>
               ) : null}
             </TouchableOpacity>
@@ -412,7 +420,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
       >
         <Pressable style={styles.modalOverlay} onPress={closeYearModal}>
           <Pressable style={styles.modalContent} onPress={() => {}}>
-            <Text style={styles.modalTitle}>연도 선택</Text>
+            <Text style={styles.modalTitle}>{t('roundList.selectYear')}</Text>
             {yearOptions.map((year) => (
               <TouchableOpacity
                 key={year}
@@ -421,7 +429,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
                 activeOpacity={0.7}
               >
                 <Text style={[styles.modalYearText, year === selectedYear && styles.modalYearTextSelected]}>
-                  {year}년
+                  {t('common.year', { year })}
                 </Text>
                 {year === selectedYear ? (
                   <Ionicons name="checkmark" size={20} color="#0a0" />

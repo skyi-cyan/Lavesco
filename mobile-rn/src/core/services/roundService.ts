@@ -35,6 +35,7 @@ import { fetchHolesUnderCourse } from './courseService';
 import type { GolfCourseHoleInput } from '../types/course';
 import { callCloudFunction } from './cloudFunctions';
 import { grossStrokesForHole } from './scoreSoundService';
+import i18n from '../../i18n';
 
 const ROUNDS_COLLECTION = 'rounds';
 const PARTICIPANTS = 'participants';
@@ -211,13 +212,13 @@ export async function joinRound(
 ): Promise<void> {
   const db = firestore();
   if (!roundId || !uid) {
-    throw new Error('라운드 ID와 사용자 ID가 필요합니다.');
+    throw new Error(i18n.t('errors.roundAndUserRequired'));
   }
 
   const roundRef = db.collection(ROUNDS_COLLECTION).doc(roundId);
   const roundSnap = await roundRef.get();
   if (!roundSnap.exists || !roundSnap.data()) {
-    throw new Error('라운드를 찾을 수 없습니다.');
+    throw new Error(i18n.t('serverErrors.roundNotFound'));
   }
 
   const participantRef = roundRef.collection(PARTICIPANTS).doc(uid);
@@ -258,7 +259,7 @@ export async function joinRound(
 
   const verifySnap = await participantRef.get({ source: 'server' });
   if (!verifySnap.exists) {
-    throw new Error('참가자 등록이 반영되지 않았습니다. 다시 시도해 주세요.');
+    throw new Error(i18n.t('errors.joinNotReflected'));
   }
   userRoundsCache = null;
 }
@@ -417,7 +418,7 @@ export async function createRound(
   input: CreateRoundInput
 ): Promise<Round> {
   if (!uid) {
-    throw new Error('로그인이 필요합니다. 다시 로그인한 뒤 시도해 주세요.');
+    throw new Error(i18n.t('errors.loginRequired'));
   }
 
   const payload = {
@@ -474,7 +475,7 @@ export async function createRound(
 
   throw lastError instanceof Error
     ? lastError
-    : new Error('라운드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    : new Error(i18n.t('serverErrors.createFailed'));
 }
 
 /**
@@ -484,7 +485,7 @@ export async function createRound(
 export async function cancelRound(roundId: string): Promise<void> {
   const id = String(roundId ?? '').trim();
   if (!id) {
-    throw new Error('라운드 ID가 필요합니다.');
+    throw new Error(i18n.t('errors.roundIdRequired'));
   }
 
   await callCloudFunction<{ roundId: string }, { ok: boolean }>('cancelRound', {

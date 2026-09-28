@@ -15,6 +15,7 @@ import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchUserConfirmedRoundStats } from '../../core/services/roundService';
 import { CourseAddRequestFooter } from '../shared/CourseAddRequestFooter';
@@ -30,9 +31,10 @@ type HomeNav = CompositeNavigationProp<
 
 /** 헤더 우측 프로필(아이콘 + 닉네임) */
 function HomeHeaderRight(): React.JSX.Element {
+  const { t } = useTranslation();
   const { profile, user } = useAuth();
   const nickname =
-    profile?.nickname ?? profile?.displayName ?? user?.email ?? '사용자';
+    profile?.nickname ?? profile?.displayName ?? user?.email ?? t('common.user');
   return (
     <View style={headerStyles.wrap}>
       <View style={headerStyles.avatarPlaceholder}>
@@ -71,9 +73,10 @@ const headerStyles = StyleSheet.create({
 export function HomeScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNav>();
+  const { t } = useTranslation();
   const { profile, user } = useAuth();
   const displayName =
-    profile?.nickname ?? profile?.displayName ?? user?.email ?? '사용자';
+    profile?.nickname ?? profile?.displayName ?? user?.email ?? t('common.user');
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -135,7 +138,7 @@ export function HomeScreen(): React.JSX.Element {
             resizeMode="cover"
           >
             <View style={styles.heroOverlay}>
-              <Text style={styles.heroSub}>{displayName}님의 기록</Text>
+              <Text style={styles.heroSub}>{t('home.userRecords', { name: displayName })}</Text>
             </View>
           </ImageBackground>
         </View>
@@ -145,14 +148,14 @@ export function HomeScreen(): React.JSX.Element {
             {totalsLoading ? (
               <View style={styles.statsLoadingWrap}>
                 <ActivityIndicator size="small" color="#059669" />
-                <Text style={styles.statsLoadingText}>기록 불러오는 중...</Text>
+                <Text style={styles.statsLoadingText}>{t('home.loadingStats')}</Text>
               </View>
             ) : (
               <>
                 <View style={styles.statsRowLabels}>
-                  <Text style={styles.statsLabel}>라운드수</Text>
-                  <Text style={styles.statsLabel}>베스트</Text>
-                  <Text style={styles.statsLabel}>평균</Text>
+                  <Text style={styles.statsLabel}>{t('home.rounds')}</Text>
+                  <Text style={styles.statsLabel}>{t('home.best')}</Text>
+                  <Text style={styles.statsLabel}>{t('home.average')}</Text>
                 </View>
                 <View style={styles.statsRowValues}>
                   <Text style={[styles.statsNum, styles.statsNumRound]}>
@@ -173,14 +176,14 @@ export function HomeScreen(): React.JSX.Element {
             {totalsLoading ? (
               <View style={styles.statsLoadingWrap}>
                 <ActivityIndicator size="small" color="#059669" />
-                <Text style={styles.statsLoadingText}>기록 불러오는 중...</Text>
+                <Text style={styles.statsLoadingText}>{t('home.loadingStats')}</Text>
               </View>
             ) : (
               <>
                 <View style={styles.statsRowLabels}>
-                  <Text style={styles.statsLabelCompact} numberOfLines={1}>FW 안착율</Text>
-                  <Text style={styles.statsLabelCompact}>그린 적중율</Text>
-                  <Text style={styles.statsLabelCompact}>평균퍼팅수</Text>
+                  <Text style={styles.statsLabelCompact} numberOfLines={1}>{t('home.fairwayHit')}</Text>
+                  <Text style={styles.statsLabelCompact}>{t('home.greenHit')}</Text>
+                  <Text style={styles.statsLabelCompact}>{t('home.avgPutts')}</Text>
                 </View>
                 <View style={styles.statsRowSubLabels}>
                   <Text style={styles.statsSubLabel}>(FIR)</Text>
@@ -215,7 +218,7 @@ export function HomeScreen(): React.JSX.Element {
               <Ionicons name="add-circle" size={22} color="#fff" />
             </View>
             <Text style={styles.shortcutLabel} numberOfLines={2}>
-              라운드{'\n'}만들기
+              {t('home.createRound')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -226,7 +229,7 @@ export function HomeScreen(): React.JSX.Element {
             <View style={[styles.shortcutIconWrap, styles.shortcutIconJoin]}>
               <Ionicons name="people" size={22} color="#fff" />
             </View>
-            <Text style={styles.shortcutLabel}>참여하기</Text>
+            <Text style={styles.shortcutLabel}>{t('home.joinRound')}</Text>
           </TouchableOpacity>
           <CourseAddRequestFooter variant="card" />
         </View>

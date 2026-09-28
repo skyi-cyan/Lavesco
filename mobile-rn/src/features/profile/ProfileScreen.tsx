@@ -7,11 +7,16 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  Pressable,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
+import { SUPPORTED_LANGUAGES, getAppLanguage, setAppLanguage } from '../../i18n';
+import type { AppLanguage } from '../../i18n';
 import { fetchUserRoundRecords } from '../../core/services/roundService';
 import type { RoundRecordRow } from '../../core/services/roundService';
 import type { ProfileStackParamList } from '../../app/ProfileStack';
@@ -22,7 +27,8 @@ type Props = {
   navigation: ProfileScreenNav;
 };
 
-const TABLE_HEADERS = ['날짜', '골프장', '총타수', '버디', '파', '보기', 'FIR', 'GIR', 'PPR'] as const;
+const TRANSLATED_HEADERS = ['date', 'course', 'total', 'birdie', 'par', 'bogey'] as const;
+const STAT_HEADERS = ['FIR', 'GIR', 'PPR'] as const;
 /** 카드 너비에 맞게 분배 (골프장 열이 남는 폭 흡수) */
 const COL_FLEX = [1.15, 2.35, 1, 1, 1, 1, 1, 1, 1] as const;
 
@@ -33,9 +39,11 @@ function formatCell(value: string | number | null | undefined): string {
 }
 
 export function ProfileScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user, profile, signOut } = useAuth();
   const [records, setRecords] = useState<RoundRecordRow[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
+  const [languagePickerVisible, setLanguagePickerVisible] = useState(false);
 
   const loadRecords = useCallback(async () => {
     if (!user?.uid) {
@@ -64,13 +72,30 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
   );
 
   const displayName =
-    profile?.nickname ?? profile?.displayName ?? profile?.email ?? user?.email ?? '사용자';
+    profile?.nickname ?? profile?.displayName ?? profile?.email ?? user?.email ?? t('common.user');
+
+  const tableHeaders: string[] = [
+    ...TRANSLATED_HEADERS.map((key) => t(`profile.tableHeaders.${key}`)),
+    ...STAT_HEADERS,
+  ];
+
+  const currentLanguage = getAppLanguage();
 
   const handleLogout = () => {
-    Alert.alert('로그아웃', '로그아웃 하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      { text: '로그아웃', style: 'destructive', onPress: () => signOut() },
+    Alert.alert(t('profile.logout'), t('profile.logoutConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('profile.logout'), style: 'destructive', onPress: () => signOut() },
     ]);
+  };
+
+  // Android Alert는 버튼을 3개까지만 보여주므로 언어 목록은 모달로 표시
+  const handleLanguage = () => {
+    setLanguagePickerVisible(true);
+  };
+
+  const handleSelectLanguage = (lang: AppLanguage) => {
+    setLanguagePickerVisible(false);
+    if (lang !== currentLanguage) setAppLanguage(lang);
   };
 
   const handleProfileEdit = () => {
@@ -99,7 +124,9 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
               </Text>
             ) : null}
             {profile?.handicap != null ? (
-              <Text style={styles.summaryMeta}>핸디캡 {profile.handicap}</Text>
+              <Text style={styles.summaryMeta}>
+                {t('profile.handicap', { value: profile.handicap })}
+              </Text>
             ) : null}
             {profile?.address ? (
               <Text style={styles.summarySub} numberOfLines={2}>
@@ -107,7 +134,9 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
               </Text>
             ) : null}
             {profile?.dateOfBirth ? (
-              <Text style={styles.summarySub}>생년월일 {profile.dateOfBirth}</Text>
+              <Text style={styles.summarySub}>
+                {t('profile.birthDate', { value: profile.dateOfBirth })}
+              </Text>
             ) : null}
           </View>
         </View>
@@ -115,20 +144,20 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
 
       {/* 나의 기록 테이블 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>나의 기록</Text>
+        <Text style={styles.sectionTitle}>{t('profile.myRecords')}</Text>
         <View style={styles.tableCard}>
           {recordsLoading ? (
             <View style={styles.tableLoading}>
               <ActivityIndicator size="small" color="#94a3b8" />
-              <Text style={styles.tableLoadingText}>불러오는 중...</Text>
+              <Text style={styles.tableLoadingText}>{t('common.loading')}</Text>
             </View>
           ) : records.length === 0 ? (
-            <Text style={styles.tableEmpty}>확정된 라운드가 없습니다.</Text>
+            <Text style={styles.tableEmpty}>{t('profile.noConfirmedRounds')}</Text>
           ) : (
             <View style={styles.tableFill}>
               <View style={styles.tableInner}>
                 <View style={[styles.tableRow, styles.tableHeaderRow]}>
-                  {TABLE_HEADERS.map((label, colIndex) => (
+                  {tableHeaders.map((label, colIndex) => (
                     <View
                       key={`h-${colIndex}-${label}`}
                       style={[
@@ -218,14 +247,14 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
 
       {/* 메뉴: 설정 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>설정</Text>
+        <Text style={styles.sectionTitle}>{t('profile.settings')}</Text>
         <View style={styles.menuCard}>
           <TouchableOpacity
             style={styles.menuRow}
             onPress={handleProfileEdit}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuLabel}>프로필 수정</Text>
+            <Text style={styles.menuLabel}>{t('profile.editProfile')}</Text>
             <Ionicons name="chevron-forward" size={20} color="#888" />
           </TouchableOpacity>
           <TouchableOpacity
@@ -233,26 +262,77 @@ export function ProfileScreen({ navigation }: Props): React.JSX.Element {
             onPress={handleNotificationSettings}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuLabel}>알림 설정</Text>
+            <Text style={styles.menuLabel}>{t('profile.notificationSettings')}</Text>
             <Ionicons name="chevron-forward" size={20} color="#888" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.menuRow, styles.menuRowBorder]}
+            onPress={handleLanguage}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.menuLabel}>{t('profile.language')}</Text>
+            <View style={styles.menuValueRow}>
+              <Text style={styles.menuValue}>{t(`language.${currentLanguage}`)}</Text>
+              <Ionicons name="chevron-forward" size={20} color="#888" />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* 메뉴: 계정 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>계정</Text>
+        <Text style={styles.sectionTitle}>{t('profile.account')}</Text>
         <View style={styles.menuCard}>
           <TouchableOpacity
             style={styles.menuRow}
             onPress={handleLogout}
             activeOpacity={0.7}
           >
-            <Text style={styles.menuLabelDanger}>로그아웃</Text>
+            <Text style={styles.menuLabelDanger}>{t('profile.logout')}</Text>
             <Ionicons name="chevron-forward" size={20} color="#c00" />
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal
+        visible={languagePickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLanguagePickerVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setLanguagePickerVisible(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{t('profile.language')}</Text>
+            {SUPPORTED_LANGUAGES.map((lang, index) => (
+              <TouchableOpacity
+                key={lang}
+                style={[styles.menuRow, index > 0 && styles.menuRowBorder]}
+                onPress={() => handleSelectLanguage(lang)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.menuLabel,
+                    lang === currentLanguage && styles.languageSelected,
+                  ]}
+                >
+                  {t(`language.${lang}`)}
+                </Text>
+                {lang === currentLanguage && (
+                  <Ionicons name="checkmark" size={20} color="#2e7d32" />
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setLanguagePickerVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -336,10 +416,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111',
   },
+  menuValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  menuValue: {
+    fontSize: 14,
+    color: '#888',
+  },
   menuLabelDanger: {
     fontSize: 16,
     color: '#c00',
     fontWeight: '500',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 8,
+  },
+  languageSelected: {
+    color: '#2e7d32',
+    fontWeight: '600',
+  },
+  modalCancel: {
+    borderTopWidth: 1,
+    borderColor: '#f0f0f0',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    color: '#666',
   },
   tableCard: {
     backgroundColor: '#fff',

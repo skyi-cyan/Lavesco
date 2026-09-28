@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import {
   validateEmail,
@@ -32,6 +33,7 @@ const DEFAULT_TEE_OPTIONS: { value: string; label: string }[] = [
 
 export function SignUpScreen(): React.JSX.Element {
   const navigation = useNavigation<Nav>();
+  const { t } = useTranslation();
   const { signUpWithEmail, loading: authLoading, clearError } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -46,7 +48,7 @@ export function SignUpScreen(): React.JSX.Element {
   const [errors, setErrors] = useState<Record<string, string | null>>({});
 
   const showError = (message: string) => {
-    Alert.alert('알림', message.replace(/^Error: /, ''));
+    Alert.alert(t('common.notice'), message.replace(/^Error: /, ''));
   };
 
   const handleSignUp = async () => {
@@ -63,7 +65,7 @@ export function SignUpScreen(): React.JSX.Element {
     });
     if (emailErr || pwErr || confirmErr || nickErr) return;
     if (!serviceTerms || !privacyPolicy) {
-      showError('필수 약관에 동의해주세요.');
+      showError(t('auth.requiredTerms'));
       return;
     }
 
@@ -109,11 +111,11 @@ export function SignUpScreen(): React.JSX.Element {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>회원가입</Text>
+        <Text style={styles.title}>{t('auth.signUp')}</Text>
 
         <TextInput
           style={[styles.input, errors.email && styles.inputError]}
-          placeholder="이메일"
+          placeholder={t('auth.email')}
           placeholderTextColor="#999"
           value={email}
           onChangeText={(t) => { setEmail(t); setErrors((e) => ({ ...e, email: null })); }}
@@ -125,7 +127,7 @@ export function SignUpScreen(): React.JSX.Element {
 
         <TextInput
           style={[styles.input, errors.password && styles.inputError]}
-          placeholder="비밀번호 (6자 이상)"
+          placeholder={t('auth.passwordHint')}
           placeholderTextColor="#999"
           value={password}
           onChangeText={(t) => { setPassword(t); setErrors((e) => ({ ...e, password: null })); }}
@@ -136,7 +138,7 @@ export function SignUpScreen(): React.JSX.Element {
 
         <TextInput
           style={[styles.input, errors.confirmPassword && styles.inputError]}
-          placeholder="비밀번호 확인"
+          placeholder={t('auth.confirmPassword')}
           placeholderTextColor="#999"
           value={confirmPassword}
           onChangeText={(t) => {
@@ -152,7 +154,7 @@ export function SignUpScreen(): React.JSX.Element {
 
         <TextInput
           style={[styles.input, errors.nickname && styles.inputError]}
-          placeholder="닉네임"
+          placeholder={t('auth.nickname')}
           placeholderTextColor="#999"
           value={nickname}
           onChangeText={(t) => { setNickname(t); setErrors((e) => ({ ...e, nickname: null })); }}
@@ -161,7 +163,7 @@ export function SignUpScreen(): React.JSX.Element {
         {errors.nickname ? <Text style={styles.errorText}>{errors.nickname}</Text> : null}
 
         <View style={styles.section}>
-          <Text style={styles.label}>기본 티</Text>
+          <Text style={styles.label}>{t('auth.defaultTee')}</Text>
           <View style={styles.teeRow}>
             {DEFAULT_TEE_OPTIONS.map((opt) => (
               <TouchableOpacity
@@ -185,9 +187,9 @@ export function SignUpScreen(): React.JSX.Element {
         </View>
 
         <View style={styles.terms}>
-          {checkbox(serviceTerms, () => setServiceTerms((v) => !v), '서비스 이용약관 동의', true)}
-          {checkbox(privacyPolicy, () => setPrivacyPolicy((v) => !v), '개인정보 처리방침 동의', true)}
-          {checkbox(marketing, () => setMarketing((v) => !v), '마케팅 수신 동의 (선택)')}
+          {checkbox(serviceTerms, () => setServiceTerms((v) => !v), t('auth.agreeService'), true)}
+          {checkbox(privacyPolicy, () => setPrivacyPolicy((v) => !v), t('auth.agreePrivacy'), true)}
+          {checkbox(marketing, () => setMarketing((v) => !v), t('auth.agreeMarketing'))}
         </View>
 
         <TouchableOpacity
@@ -198,17 +200,17 @@ export function SignUpScreen(): React.JSX.Element {
           {isLoading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.primaryButtonText}>가입하기</Text>
+            <Text style={styles.primaryButtonText}>{t('auth.submitSignUp')}</Text>
           )}
         </TouchableOpacity>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>이미 계정이 있으신가요? </Text>
+          <Text style={styles.footerText}>{t('auth.hasAccount')}</Text>
           <TouchableOpacity
             onPress={() => navigation.navigate('Login')}
             disabled={isLoading}
           >
-            <Text style={styles.footerLink}>로그인</Text>
+            <Text style={styles.footerLink}>{t('auth.login')}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

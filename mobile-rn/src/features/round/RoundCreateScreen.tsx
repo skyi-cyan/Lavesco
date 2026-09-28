@@ -16,7 +16,9 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
+import { TEE_TIME_OPTIONS, formatTeeTime } from '../../core/constants/teeTimes';
 import { fetchGolfCourses } from '../../core/services/courseService';
 import { fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
 import { createRound } from '../../core/services/roundService';
@@ -28,9 +30,6 @@ import type { RoundStackParamList } from '../../app/RoundStack';
 type Props = NativeStackScreenProps<RoundStackParamList, 'RoundCreate'>;
 
 type PickerType = 'front_course' | 'back_course' | 'tee_time' | 'date' | null;
-
-/** 티타임: 1부, 2부, 3부 */
-const TEE_TIME_OPTIONS = ['1부', '2부', '3부'];
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 11 }, (_, i) => CURRENT_YEAR - 2 + i);
@@ -48,6 +47,7 @@ function formatScheduledDate(d: Date): string {
 }
 
 export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user, profile } = useAuth();
   const insets = useSafeAreaInsets();
   const modalBottomPad = Math.max(insets.bottom, 12) + 20;
@@ -173,16 +173,16 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   const handleCreate = async () => {
     const gcName = golfCourseName.trim();
     if (!gcName) {
-      Alert.alert('입력 확인', '골프장을 입력하거나 선택해주세요.');
+      Alert.alert(t('roundCreate.checkInput'), t('roundCreate.golfCourseRequired'));
       return;
     }
     if (!user?.uid) {
-      Alert.alert('로그인 필요', '다시 로그인한 뒤 시도해 주세요.');
+      Alert.alert(t('roundCreate.loginRequiredTitle'), t('roundCreate.loginAgain'));
       return;
     }
 
     if (!directInput && selectedGolfCourse && !frontCourse) {
-      Alert.alert('입력 확인', '전반 코스를 선택해주세요.');
+      Alert.alert(t('roundCreate.checkInput'), t('roundCreate.frontCourseRequired'));
       return;
     }
 
@@ -206,13 +206,13 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
       // 홈「라운드 만들기」등으로 들어오면 스택에 RoundList가 없어 goBack()이 동작하지 않을 수 있음 → 목록으로 명시적 리셋
       navigation.reset({ index: 0, routes: [{ name: 'RoundList' }] });
       Alert.alert(
-        '라운드 생성 완료',
-        `라운드가 생성되었습니다.\n\n라운드 번호: ${round.roundNumber ?? '-'}\n(6자리 번호를 공유해 주세요)`,
-        [{ text: '확인' }]
+        t('roundCreate.createdTitle'),
+        t('roundCreate.createdMessage', { number: round.roundNumber ?? '-' }),
+        [{ text: t('common.confirm') }]
       );
     } catch (e) {
-      const message = formatFirestoreUserMessage(e, '라운드 생성에 실패했습니다.');
-      Alert.alert('생성 실패', message);
+      const message = formatFirestoreUserMessage(e, t('roundCreate.createFailedMessage'));
+      Alert.alert(t('roundCreate.createFailed'), message);
     } finally {
       setCreating(false);
     }
@@ -221,7 +221,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.subtitle}>로그인이 필요합니다.</Text>
+        <Text style={styles.subtitle}>{t('common.loginRequired')}</Text>
       </View>
     );
   }
@@ -238,18 +238,18 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.section}>
-          <Text style={styles.label}>라운드(대회)명</Text>
+          <Text style={styles.label}>{t('roundCreate.roundName')}</Text>
           <TextInput
             style={styles.input}
             value={roundName}
             onChangeText={setRoundName}
-            placeholder="라운드 또는 대회 이름 (선택)"
+            placeholder={t('roundCreate.roundNamePlaceholder')}
             placeholderTextColor="#999"
           />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>골프장</Text>
+          <Text style={styles.label}>{t('roundCreate.golfCourse')}</Text>
           <View style={styles.golfCourseRow}>
             <View style={styles.inputTouchable}>
               <Ionicons name="search" size={20} color="#666" style={styles.inputIcon} />
@@ -259,7 +259,11 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                 onChangeText={setGolfCourseName}
                 onFocus={() => setGolfCourseSearchFocused(true)}
                 onBlur={() => setTimeout(() => setGolfCourseSearchFocused(false), 200)}
-                placeholder={directInput ? '골프장 이름 입력' : '골프장 검색 (이름·지역)'}
+                placeholder={
+                  directInput
+                    ? t('roundCreate.golfCourseNamePlaceholder')
+                    : t('roundCreate.golfCourseSearchPlaceholder')
+                }
                 placeholderTextColor="#999"
                 editable={true}
               />
@@ -292,13 +296,13 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
               <View style={[styles.checkbox, directInput && styles.checkboxChecked]}>
                 {directInput ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
               </View>
-              <Text style={styles.checkLabel}>직접입력</Text>
+              <Text style={styles.checkLabel}>{t('roundCreate.directInput')}</Text>
             </TouchableOpacity>
           </View>
           {showGolfCourseDropdown ? (
             <View style={styles.dropdown}>
               {filteredGolfCourses.length === 0 ? (
-                <Text style={styles.dropdownEmpty}>검색 결과가 없습니다.</Text>
+                <Text style={styles.dropdownEmpty}>{t('roundCreate.noResults')}</Text>
               ) : (
                 filteredGolfCourses.slice(0, 8).map((gc) => (
                   <TouchableOpacity
@@ -319,13 +323,13 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>전반코스</Text>
+          <Text style={styles.label}>{t('roundCreate.frontCourse')}</Text>
           {directInput ? (
             <TextInput
               style={styles.input}
               value={frontCourseNameDirect}
               onChangeText={setFrontCourseNameDirect}
-              placeholder="전반코스 이름 입력 (선택)"
+              placeholder={t('roundCreate.frontCoursePlaceholder')}
               placeholderTextColor="#999"
             />
           ) : (
@@ -335,7 +339,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
               disabled={courses.length === 0}
             >
               <Text style={[styles.selectText, !frontCourse && styles.selectPlaceholder]}>
-                {frontCourse?.name ?? '코스 선택'}
+                {frontCourse?.name ?? t('roundCreate.selectCourse')}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
@@ -343,13 +347,13 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>후반코스</Text>
+          <Text style={styles.label}>{t('roundCreate.backCourse')}</Text>
           {directInput ? (
             <TextInput
               style={styles.input}
               value={backCourseNameDirect}
               onChangeText={setBackCourseNameDirect}
-              placeholder="후반코스 이름 입력 (선택)"
+              placeholder={t('roundCreate.backCoursePlaceholder')}
               placeholderTextColor="#999"
             />
           ) : (
@@ -359,7 +363,12 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
               disabled={backCourseOptions.length === 0}
             >
               <Text style={[styles.selectText, !backCourse && styles.selectPlaceholder]}>
-                {backCourse?.name ?? (frontCourse ? (backCourseOptions.length > 0 ? '코스 선택' : '선택 가능한 코스 없음') : '전반코스 선택 후 가능')}
+                {backCourse?.name ??
+                  (frontCourse
+                    ? backCourseOptions.length > 0
+                      ? t('roundCreate.selectCourse')
+                      : t('roundCreate.noCourseAvailable')
+                    : t('roundCreate.selectFrontFirst'))}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
@@ -367,7 +376,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>날짜 / 티타임</Text>
+          <Text style={styles.label}>{t('roundCreate.dateTeeTime')}</Text>
           <View style={styles.dateTeeRow}>
             <TouchableOpacity
               style={[styles.selectTouchable, styles.dateTouchable]}
@@ -384,7 +393,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
               activeOpacity={0.7}
             >
               <Text style={[styles.selectText, !teeTime && styles.selectPlaceholder]}>
-                {teeTime || '티타임 선택'}
+                {teeTime ? formatTeeTime(teeTime) : t('roundCreate.selectTeeTime')}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
@@ -398,7 +407,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           activeOpacity={0.8}
         >
           <Text style={styles.createButtonText}>
-            {creating ? '만들기 중...' : '완료'}
+            {creating ? t('roundCreate.creating') : t('common.done')}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -420,7 +429,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>전반코스 선택</Text>
+            <Text style={styles.modalTitle}>{t('roundCreate.selectFrontCourse')}</Text>
             <FlatList
               data={courses}
               keyExtractor={(item) => item.id}
@@ -432,7 +441,9 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.modalRowTitle}>{item.name}</Text>
-                  <Text style={styles.modalRowSub}>{item.holeCount}홀</Text>
+                  <Text style={styles.modalRowSub}>
+                    {t('roundCreate.holeCount', { count: item.holeCount })}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -457,7 +468,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>후반코스 선택</Text>
+            <Text style={styles.modalTitle}>{t('roundCreate.selectBackCourse')}</Text>
             <FlatList
               data={backCourseOptions}
               keyExtractor={(item) => item.id}
@@ -469,7 +480,9 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.modalRowTitle}>{item.name}</Text>
-                  <Text style={styles.modalRowSub}>{item.holeCount}홀</Text>
+                  <Text style={styles.modalRowSub}>
+                    {t('roundCreate.holeCount', { count: item.holeCount })}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -494,10 +507,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>티타임 선택</Text>
+            <Text style={styles.modalTitle}>{t('roundCreate.selectTeeTime')}</Text>
             <FlatList
               data={TEE_TIME_OPTIONS}
-              keyExtractor={(t) => t}
+              keyExtractor={(item) => item}
               contentContainerStyle={styles.modalListContent}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -508,7 +521,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.modalRowTitle}>{item}</Text>
+                  <Text style={styles.modalRowTitle}>{formatTeeTime(item)}</Text>
                   {teeTime === item ? (
                     <Ionicons name="checkmark-circle" size={22} color="#0a0" />
                   ) : null}
@@ -536,10 +549,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>날짜 선택</Text>
+            <Text style={styles.modalTitle}>{t('roundCreate.selectDate')}</Text>
             <View style={styles.datePickerRow}>
               <View style={styles.datePickerColumn}>
-                <Text style={styles.datePickerColumnLabel}>년</Text>
+                <Text style={styles.datePickerColumnLabel}>{t('roundCreate.yearLabel')}</Text>
                 <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
                   {YEAR_OPTIONS.map((y) => (
                     <TouchableOpacity
@@ -556,7 +569,7 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                 </ScrollView>
               </View>
               <View style={styles.datePickerColumn}>
-                <Text style={styles.datePickerColumnLabel}>월</Text>
+                <Text style={styles.datePickerColumnLabel}>{t('roundCreate.monthLabel')}</Text>
                 <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
                   {MONTH_OPTIONS.map((m) => (
                     <TouchableOpacity
@@ -566,14 +579,14 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
                       activeOpacity={0.7}
                     >
                       <Text style={[styles.datePickerItemText, pickMonth === m && styles.datePickerItemTextSelected]}>
-                        {m}월
+                        {t('roundCreate.month', { month: m })}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
               <View style={styles.datePickerColumn}>
-                <Text style={styles.datePickerColumnLabel}>일</Text>
+                <Text style={styles.datePickerColumnLabel}>{t('roundCreate.dayLabel')}</Text>
                 <ScrollView style={styles.datePickerScroll} nestedScrollEnabled>
                   {dayOptions.map((d) => (
                     <TouchableOpacity
@@ -592,10 +605,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
             </View>
             <View style={styles.datePickerButtonRow}>
               <TouchableOpacity style={styles.datePickerCancelButton} onPress={() => setPickerOpen(null)} activeOpacity={0.8}>
-                <Text style={styles.datePickerCancelText}>취소</Text>
+                <Text style={styles.datePickerCancelText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.datePickerConfirmButton} onPress={confirmDatePicker} activeOpacity={0.8}>
-                <Text style={styles.datePickerConfirmText}>확인</Text>
+                <Text style={styles.datePickerConfirmText}>{t('common.confirm')}</Text>
               </TouchableOpacity>
             </View>
           </View>

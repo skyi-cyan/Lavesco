@@ -12,6 +12,7 @@ import {
 import type { ComponentType } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 
 /** 모바일 리다이렉트(예: /Mobile)를 피하기 위한 데스크톱 Chrome UA */
 export const DESKTOP_BROWSER_USER_AGENT =
@@ -80,8 +81,9 @@ function loadWebViewComponent(): ComponentType<WebViewProps> | null {
  * 네이티브 모듈이 없으면(재빌드 전) 외부 브라우저로 폴백합니다.
  */
 export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const rawUrl = route.params.url ?? '';
-  const title = route.params.title?.trim() || '코스 보기';
+  const title = route.params.title?.trim() || t('nav.courseView');
   const uri = useMemo(() => normalizeExternalUrl(rawUrl), [rawUrl]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,13 +100,13 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={styles.headerBtn}
-            accessibilityLabel="외부 브라우저에서 열기"
+            accessibilityLabel={t('webView.openExternal')}
           >
             <Ionicons name="open-outline" size={22} color="#1565c0" />
           </TouchableOpacity>
         ) : null,
     });
-  }, [navigation, title, uri]);
+  }, [navigation, title, uri, t]);
 
   useEffect(() => {
     if (!uri || WebViewComp) return;
@@ -115,7 +117,7 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
   if (!uri) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorText}>유효한 URL이 없습니다.</Text>
+        <Text style={styles.errorText}>{t('webView.invalidUrl')}</Text>
       </View>
     );
   }
@@ -123,21 +125,18 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
   if (!WebViewComp) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.infoText}>
-          인앱 코스 보기를 쓰려면 앱을 다시 설치해야 합니다.{'\n'}
-          (react-native-webview 네이티브 모듈)
-        </Text>
-        <Text style={styles.subText}>지금은 외부 브라우저로 열었습니다.</Text>
+        <Text style={styles.infoText}>{t('webView.reinstallRequired')}</Text>
+        <Text style={styles.subText}>{t('webView.openedExternally')}</Text>
         <TouchableOpacity
           style={styles.retryBtn}
           onPress={() => {
             void Linking.openURL(uri);
           }}
         >
-          <Text style={styles.retryText}>다시 열기</Text>
+          <Text style={styles.retryText}>{t('webView.reopen')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.externalBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.externalText}>뒤로</Text>
+          <Text style={styles.externalText}>{t('webView.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -154,7 +153,7 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
             setLoading(true);
           }}
         >
-          <Text style={styles.retryText}>다시 시도</Text>
+          <Text style={styles.retryText}>{t('common.retry')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.externalBtn}
@@ -162,7 +161,7 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
             void Linking.openURL(uri);
           }}
         >
-          <Text style={styles.externalText}>외부 브라우저에서 열기</Text>
+          <Text style={styles.externalText}>{t('webView.openExternal')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -198,12 +197,12 @@ export function CourseWebViewScreen({ route, navigation }: Props): React.JSX.Ele
         onLoadEnd={() => setLoading(false)}
         onError={() => {
           setLoading(false);
-          setError('페이지를 불러오지 못했습니다.');
+          setError(t('webView.loadFailed'));
         }}
         onHttpError={(e) => {
           if (e.nativeEvent.statusCode >= 500) {
             setLoading(false);
-            setError(`페이지 오류 (${e.nativeEvent.statusCode})`);
+            setError(t('webView.httpError', { status: e.nativeEvent.statusCode }));
           }
         }}
         allowsBackForwardNavigationGestures={Platform.OS === 'ios'}

@@ -11,6 +11,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import {
   fetchGolfCourse,
   fetchCoursesUnderGolfCourse,
@@ -43,6 +44,7 @@ type Props = {
 export function CourseDetailScreen({ route }: Props): React.JSX.Element {
   const { courseId } = route.params;
   const navigation = useNavigation<CourseDetailNav>();
+  const { t } = useTranslation();
   const [golfCourse, setGolfCourse] = useState<GolfCourse | null>(null);
   const [courses, setCourses] = useState<GolfCourseCourse[]>([]);
   const [holesByCourse, setHolesByCourse] = useState<Record<string, Record<string, GolfCourseHoleInput>>>({});
@@ -55,10 +57,10 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
       if (!normalized) return;
       navigation.navigate('CourseWebView', {
         url: normalized,
-        title: title ?? '코스 보기',
+        title: title ?? t('nav.courseView'),
       });
     },
-    [navigation]
+    [navigation, t]
   );
 
   const load = useCallback(async () => {
@@ -67,7 +69,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
     try {
       const gc = await fetchGolfCourse(courseId);
       if (!gc) {
-        setError('골프장을 찾을 수 없습니다.');
+        setError(t('courseDetail.notFound'));
         setLoading(false);
         return;
       }
@@ -90,11 +92,11 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
       }
       setHolesByCourse(holesData);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '불러오기 실패');
+      setError(e instanceof Error ? e.message : t('courseDetail.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [courseId]);
+  }, [courseId, t]);
 
   useEffect(() => {
     load();
@@ -104,7 +106,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#0a0" />
-        <Text style={styles.loadingText}>코스 정보 불러오는 중...</Text>
+        <Text style={styles.loadingText}>{t('courseDetail.loading')}</Text>
       </View>
     );
   }
@@ -112,7 +114,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
   if (error || !golfCourse) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorText}>{error ?? '골프장을 찾을 수 없습니다.'}</Text>
+        <Text style={styles.errorText}>{error ?? t('courseDetail.notFound')}</Text>
       </View>
     );
   }
@@ -124,18 +126,23 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 골프장(CC) 기본 정보 — admin-web과 동일 구성 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>골프장(CC) 정보</Text>
+        <Text style={styles.sectionTitle}>{t('courseDetail.infoTitle')}</Text>
         <View style={styles.infoGrid}>
-          <InfoRow label="골프장명" value={golfCourse.name} />
-          <InfoRow label="지역" value={golfCourse.region} />
-          <InfoRow label="상태" value={golfCourse.status === 'ACTIVE' ? '활성' : '비활성'} />
-          <InfoRow label="거리 단위" value={distanceUnitLabel} />
-          {golfCourse.address ? <InfoRow label="주소" value={golfCourse.address} /> : null}
+          <InfoRow label={t('courseDetail.name')} value={golfCourse.name} />
+          <InfoRow label={t('courseDetail.region')} value={golfCourse.region} />
+          <InfoRow
+            label={t('courseDetail.status')}
+            value={golfCourse.status === 'ACTIVE' ? t('courseDetail.active') : t('courseDetail.inactive')}
+          />
+          <InfoRow label={t('courseDetail.distanceUnit')} value={distanceUnitLabel} />
+          {golfCourse.address ? (
+            <InfoRow label={t('courseDetail.address')} value={golfCourse.address} />
+          ) : null}
           {golfCourse.homepage ? (
             <View style={styles.infoRow}>
-              <Text style={styles.label}>홈페이지: </Text>
+              <Text style={styles.label}>{t('courseDetail.homepage')}: </Text>
               <TouchableOpacity
-                onPress={() => openExternalUrl(golfCourse.homepage!, '홈페이지')}
+                onPress={() => openExternalUrl(golfCourse.homepage!, t('courseDetail.homepage'))}
                 style={styles.linkWrap}
               >
                 <Text style={styles.link} numberOfLines={1}>{golfCourse.homepage}</Text>
@@ -143,7 +150,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
             </View>
           ) : null}
           {golfCourse.additionalInfo ? (
-            <InfoRow label="추가 정보" value={golfCourse.additionalInfo} />
+            <InfoRow label={t('courseDetail.additionalInfo')} value={golfCourse.additionalInfo} />
           ) : null}
         </View>
       </View>
@@ -151,7 +158,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
       {/* 코스별 홀 (황룡, 청룡 등) */}
       <View style={styles.section}>
         {courses.length === 0 ? (
-          <Text style={styles.emptyCourse}>등록된 코스가 없습니다.</Text>
+          <Text style={styles.emptyCourse}>{t('courseDetail.noCourses')}</Text>
         ) : (
           courses.map((course) => (
             <View key={course.id} style={styles.courseBlock}>
@@ -165,7 +172,7 @@ export function CourseDetailScreen({ route }: Props): React.JSX.Element {
                     activeOpacity={0.7}
                   >
                     <Ionicons name="open-outline" size={16} color="#0a0" />
-                    <Text style={styles.courseLinkText}>코스 뷰</Text>
+                    <Text style={styles.courseLinkText}>{t('roundDetail.courseView')}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>

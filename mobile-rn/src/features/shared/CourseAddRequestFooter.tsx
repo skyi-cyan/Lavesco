@@ -15,25 +15,20 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import {
   fetchMyCourseAddRequests,
   submitCourseAddRequest,
   type CourseAddRequest,
 } from '../../core/services/courseRequestService';
-
-const REQUEST_STATUS_LABEL: Record<CourseAddRequest['status'], string> = {
-  PENDING: '접수',
-  IN_PROGRESS: '처리중',
-  COMPLETED: '등록 완료',
-  REJECTED: '반려',
-};
+import { getDateLocale } from '../../i18n';
 
 function formatRequestDate(v: unknown): string {
   if (v == null) return '';
   if (typeof (v as { toDate?: () => Date }).toDate === 'function') {
     try {
-      return (v as { toDate: () => Date }).toDate().toLocaleString('ko-KR');
+      return (v as { toDate: () => Date }).toDate().toLocaleString(getDateLocale());
     } catch {
       return '';
     }
@@ -52,6 +47,7 @@ type Props = {
  * 코스추가 요청하기 버튼 + 모달 (홈·코스 메뉴 공통)
  */
 export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { profile, user } = useAuth();
   const [requestModalVisible, setRequestModalVisible] = useState(false);
   const [reqGolfName, setReqGolfName] = useState('');
@@ -73,17 +69,17 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
       const list = await fetchMyCourseAddRequests(user.uid);
       setMyRequests(list);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '내 요청 내역을 불러오지 못했습니다.';
+      const msg = e instanceof Error ? e.message : t('courseRequest.loadFailed');
       setMyRequestsError(msg);
       setMyRequests([]);
     } finally {
       setLoadingMyRequests(false);
     }
-  }, [user?.uid]);
+  }, [user?.uid, t]);
 
   const openCourseRequestModal = useCallback(() => {
     if (!user?.uid) {
-      Alert.alert('로그인 필요', '코스 추가 요청은 로그인 후 이용할 수 있습니다.');
+      Alert.alert(t('roundCreate.loginRequiredTitle'), t('courseRequest.loginRequired'));
       return;
     }
     setReqGolfName('');
@@ -91,13 +87,13 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
     setReqDetails('');
     setRequestModalVisible(true);
     loadMyRequests();
-  }, [user?.uid, loadMyRequests]);
+  }, [user?.uid, loadMyRequests, t]);
 
   const handleSubmitCourseRequest = async () => {
     if (!user?.uid) return;
     const name = reqGolfName.trim();
     if (!name) {
-      Alert.alert('입력 확인', '골프장(코스) 이름을 입력해 주세요.');
+      Alert.alert(t('roundCreate.checkInput'), t('courseRequest.nameRequired'));
       return;
     }
     setSubmittingRequest(true);
@@ -111,7 +107,7 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
         region: reqRegion.trim(),
         details: reqDetails.trim(),
       });
-      Alert.alert('접수 완료', '요청이 접수되었습니다. 검토 후 앱에서 답변을 확인할 수 있습니다.');
+      Alert.alert(t('courseRequest.submittedTitle'), t('courseRequest.submittedMessage'));
       setReqGolfName('');
       setReqRegion('');
       setReqDetails('');
@@ -120,7 +116,7 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
       await new Promise((r) => setTimeout(r, 800));
       await loadMyRequests();
     } catch (e) {
-      Alert.alert('오류', e instanceof Error ? e.message : '요청 전송에 실패했습니다.');
+      Alert.alert(t('common.error'), e instanceof Error ? e.message : t('courseRequest.submitFailed'));
     } finally {
       setSubmittingRequest(false);
     }
@@ -138,7 +134,7 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
             <Ionicons name="map" size={22} color="#fff" />
           </View>
           <Text style={styles.cardLabel} numberOfLines={2}>
-            코스추가{'\n'}요청하기
+            {t('courseRequest.cardLabel')}
           </Text>
         </TouchableOpacity>
       ) : (
@@ -148,7 +144,7 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
           activeOpacity={0.85}
         >
           <Ionicons name="map-outline" size={20} color="#0369a1" />
-          <Text style={styles.courseRequestShortcutText}>코스추가 요청하기</Text>
+          <Text style={styles.courseRequestShortcutText}>{t('courseRequest.barLabel')}</Text>
           <Ionicons name="chevron-forward" size={18} color="#64748b" />
         </TouchableOpacity>
       )}
@@ -165,7 +161,7 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
         >
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>코스 추가 요청</Text>
+              <Text style={styles.modalTitle}>{t('courseRequest.modalTitle')}</Text>
               <TouchableOpacity
                 onPress={() => setRequestModalVisible(false)}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
@@ -173,36 +169,34 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
                 <Ionicons name="close" size={26} color="#64748b" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalDesc}>
-              등록되지 않은 골프장이 있으면 아래에 남겨 주세요. 검토 후 코스에 반영되면 답변을 남겨 드립니다.
-            </Text>
+            <Text style={styles.modalDesc}>{t('courseRequest.modalDesc')}</Text>
             <ScrollView
               style={styles.modalScroll}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.inputLabel}>골프장 이름 *</Text>
+              <Text style={styles.inputLabel}>{t('courseRequest.nameLabel')}</Text>
               <TextInput
                 style={styles.input}
                 value={reqGolfName}
                 onChangeText={setReqGolfName}
-                placeholder="예: OO 컨트리클럽"
+                placeholder={t('courseRequest.namePlaceholder')}
                 placeholderTextColor="#94a3b8"
               />
-              <Text style={styles.inputLabel}>지역 (선택)</Text>
+              <Text style={styles.inputLabel}>{t('courseRequest.regionLabel')}</Text>
               <TextInput
                 style={styles.input}
                 value={reqRegion}
                 onChangeText={setReqRegion}
-                placeholder="예: 경기도 용인시"
+                placeholder={t('courseRequest.regionPlaceholder')}
                 placeholderTextColor="#94a3b8"
               />
-              <Text style={styles.inputLabel}>추가 설명 (선택)</Text>
+              <Text style={styles.inputLabel}>{t('courseRequest.detailsLabel')}</Text>
               <TextInput
                 style={[styles.input, styles.inputMultiline]}
                 value={reqDetails}
                 onChangeText={setReqDetails}
-                placeholder="코스 수, 홈페이지 등 참고할 내용"
+                placeholder={t('courseRequest.detailsPlaceholder')}
                 placeholderTextColor="#94a3b8"
                 multiline
               />
@@ -215,17 +209,17 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
                 {submittingRequest ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.submitRequestBtnText}>요청 보내기</Text>
+                  <Text style={styles.submitRequestBtnText}>{t('courseRequest.submit')}</Text>
                 )}
               </TouchableOpacity>
 
-              <Text style={styles.myRequestsTitle}>내 요청 내역</Text>
+              <Text style={styles.myRequestsTitle}>{t('courseRequest.myRequests')}</Text>
               {loadingMyRequests ? (
                 <ActivityIndicator style={{ marginVertical: 16 }} color="#059669" />
               ) : myRequestsError ? (
                 <Text style={styles.myRequestsError}>{myRequestsError}</Text>
               ) : myRequests.length === 0 ? (
-                <Text style={styles.myRequestsEmpty}>아직 요청 내역이 없습니다.</Text>
+                <Text style={styles.myRequestsEmpty}>{t('courseRequest.noRequests')}</Text>
               ) : (
                 myRequests.map((r) => (
                   <View key={r.id} style={styles.requestItem}>
@@ -234,16 +228,16 @@ export function CourseAddRequestFooter({ style, variant = 'bar' }: Props): React
                         {r.golfCourseName}
                       </Text>
                       <Text style={styles.requestItemStatus}>
-                        {REQUEST_STATUS_LABEL[r.status]}
+                        {t(`courseRequest.status.${r.status}`)}
                       </Text>
                     </View>
                     <Text style={styles.requestItemMeta}>
-                      {formatRequestDate(r.createdAt) || '날짜 없음'}
+                      {formatRequestDate(r.createdAt) || t('courseRequest.noDate')}
                       {r.region ? ` · ${r.region}` : ''}
                     </Text>
                     {r.adminReply ? (
                       <View style={styles.adminReplyBox}>
-                        <Text style={styles.adminReplyLabel}>관리자 답변</Text>
+                        <Text style={styles.adminReplyLabel}>{t('courseRequest.adminReply')}</Text>
                         <Text style={styles.adminReplyText}>{r.adminReply}</Text>
                       </View>
                     ) : null}

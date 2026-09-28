@@ -14,6 +14,7 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { DEFAULT_GOLF_CLUB_ID, GOLF_CLUBS, type GolfClubId } from '../../core/constants/golfClubs';
 import {
@@ -34,9 +35,6 @@ type Props = {
   navigation: Nav;
 };
 
-const GUIDE_MESSAGE =
-  '샷 시작점과 볼 위치의 GPS로 거리를 측정합니다. 스마트폰 GPS 오차(±수 m)는 참고용으로 활용해 주세요.';
-
 function formatDate(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -47,6 +45,7 @@ function formatDate(d: Date): string {
 }
 
 export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const modalBottomPad = Math.max(insets.bottom, 12) + 20;
@@ -140,17 +139,18 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
 
   const handleDelete = (record: DistanceRecord) => {
     if (!user?.uid) return;
-    Alert.alert('기록 삭제', `${record.clubLabel} ${formatDistanceMeters(record.distanceMeters)} 기록을 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
+    const recordLabel = `${record.clubLabel} ${formatDistanceMeters(record.distanceMeters)}`;
+    Alert.alert(t('distanceList.deleteTitle'), t('distanceList.deleteConfirm', { record: recordLabel }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '삭제',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: async () => {
           try {
             await deleteDistanceRecord(user.uid, record.id);
             setRecords((prev) => prev.filter((r) => r.id !== record.id));
           } catch {
-            Alert.alert('오류', '삭제에 실패했습니다.');
+            Alert.alert(t('common.error'), t('distanceList.deleteFailed'));
           }
         },
       },
@@ -160,7 +160,7 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
   if (!user) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.subtitle}>로그인이 필요합니다.</Text>
+        <Text style={styles.subtitle}>{t('common.loginRequired')}</Text>
       </View>
     );
   }
@@ -186,7 +186,7 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
         ListHeaderComponent={
           <>
             <View style={styles.queryBox}>
-              <Text style={styles.queryLabel}>클럽 선택</Text>
+              <Text style={styles.queryLabel}>{t('distance.selectClub')}</Text>
               <View style={styles.queryRow}>
                 <TouchableOpacity
                   style={styles.comboTrigger}
@@ -198,19 +198,21 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.queryBtn} onPress={handleQuery} activeOpacity={0.85}>
                   <Ionicons name="search" size={18} color="#fff" />
-                  <Text style={styles.queryBtnText}>조회</Text>
+                  <Text style={styles.queryBtnText}>{t('distanceList.query')}</Text>
                 </TouchableOpacity>
               </View>
               {queriedClubId ? (
                 <TouchableOpacity style={styles.resetQueryBtn} onPress={handleResetQuery}>
-                  <Text style={styles.resetQueryText}>전체 기록 보기</Text>
+                  <Text style={styles.resetQueryText}>{t('distanceList.showAll')}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
 
             {clubStats && queriedClubLabel ? (
               <View style={styles.statsBox}>
-                <Text style={styles.statsTitle}>{queriedClubLabel} 통계</Text>
+                <Text style={styles.statsTitle}>
+                  {t('distanceList.statsTitle', { club: queriedClubLabel })}
+                </Text>
                 {clubStats.count > 0 ? (
                   <View style={styles.statsRow}>
                     <View style={styles.statItem}>
@@ -235,10 +237,12 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
                     </View>
                   </View>
                 ) : (
-                  <Text style={styles.statsEmpty}>선택한 클럽의 기록이 없습니다.</Text>
+                  <Text style={styles.statsEmpty}>{t('distanceList.noClubRecords')}</Text>
                 )}
                 {clubStats.count > 0 ? (
-                  <Text style={styles.statsCount}>총 {clubStats.count}회 측정</Text>
+                  <Text style={styles.statsCount}>
+                    {t('distanceList.totalCount', { count: clubStats.count })}
+                  </Text>
                 ) : null}
               </View>
             ) : null}
@@ -248,9 +252,9 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
           <View style={styles.empty}>
             <Ionicons name="locate-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>
-              {queriedClubId ? '해당 클럽의 기록이 없습니다.' : '저장된 거리 기록이 없습니다.'}
+              {queriedClubId ? t('distanceList.emptyClub') : t('distanceList.empty')}
             </Text>
-            <Text style={styles.emptySub}>새 기록을 눌러 측정을 시작하세요.</Text>
+            <Text style={styles.emptySub}>{t('distanceList.emptyHint')}</Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -267,7 +271,7 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
             </View>
             <View style={styles.cardMetaRow}>
               <Text style={styles.cardDate}>{formatDate(item.recordedAt)}</Text>
-              <Text style={styles.cardHint}>길게 눌러 삭제</Text>
+              <Text style={styles.cardHint}>{t('distanceList.longPressDelete')}</Text>
             </View>
             {item.golfCourseName ? (
               <View style={styles.courseRow}>
@@ -297,7 +301,7 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>클럽 선택</Text>
+            <Text style={styles.modalTitle}>{t('distance.selectClub')}</Text>
             <FlatList
               data={GOLF_CLUBS}
               keyExtractor={(item) => item.id}
@@ -327,12 +331,12 @@ export function DistanceListScreen({ navigation }: Props): React.JSX.Element {
         style={[styles.toast, { opacity: toastOpacity }]}
       >
         <Ionicons name="information-circle" size={18} color="#a7f3d0" />
-        <Text style={styles.toastText}>{GUIDE_MESSAGE}</Text>
+        <Text style={styles.toastText}>{t('distanceList.guide')}</Text>
       </Animated.View>
 
       <TouchableOpacity style={styles.fab} onPress={handleCreate} activeOpacity={0.9}>
         <Ionicons name="add" size={28} color="#fff" />
-        <Text style={styles.fabLabel}>새 기록</Text>
+        <Text style={styles.fabLabel}>{t('distanceList.newRecord')}</Text>
       </TouchableOpacity>
     </View>
   );

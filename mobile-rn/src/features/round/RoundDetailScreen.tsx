@@ -12,6 +12,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import firestore from '@react-native-firebase/firestore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { Trans, useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
 import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
 import { grossStrokesForHole, playScoreSound } from '../../core/services/scoreSoundService';
@@ -43,6 +44,7 @@ function normalizeExternalUrl(value: string): string {
 
 export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { roundId } = route.params;
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [round, setRound] = useState<Round | null>(null);
   const [participants, setParticipants] = useState<RoundParticipant[]>([]);
@@ -82,7 +84,10 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     if (!normalized) return;
     navigation.navigate('CourseWebView', {
       url: normalized,
-      title: courseNameForHole !== '-' ? `${courseNameForHole} 코스` : '코스 보기',
+      title:
+        courseNameForHole !== '-'
+          ? t('roundDetail.courseTitle', { name: courseNameForHole })
+          : t('nav.courseView'),
     });
   };
 
@@ -245,7 +250,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           activeOpacity={0.8}
         >
           <Ionicons name="help-circle-outline" size={16} color="#1565c0" />
-          <Text style={styles.headerHelpButtonText}>도움말</Text>
+          <Text style={styles.headerHelpButtonText}>{t('roundDetail.help')}</Text>
         </TouchableOpacity>
       ),
     });
@@ -254,7 +259,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       load();
     });
     return unsubscribe;
-  }, [navigation, load]);
+  }, [navigation, load, t]);
 
   /** 현재 홀 draft만 수정 (저장 버튼을 눌러야 반영됨) */
   const updateDraft = useCallback((updater: (prev: HoleScoreData) => HoleScoreData) => {
@@ -413,14 +418,16 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     try {
       await confirmRoundScore(roundId, user.uid, holes);
       await load();
-      Alert.alert('스코어 확정', '스코어가 확정되었습니다.');
+      Alert.alert(t('roundDetail.confirmScore'), t('roundDetail.confirmed'));
     } catch (e) {
-      const message = (e as Error)?.message ?? '스코어 확정에 실패했습니다.';
-      Alert.alert('확정 실패', message);
+      const message = (e as Error)?.message ?? t('roundDetail.confirmFailedMessage');
+      Alert.alert(t('roundDetail.confirmFailed'), message);
     } finally {
       setConfirming(false);
     }
-  }, [roundId, user?.uid, scoresByUid, confirming, isScoreConfirmed, all18HolesSaved, load, normalizeMyHolesForPersist]);
+  }, [roundId, user?.uid, scoresByUid, confirming, isScoreConfirmed, all18HolesSaved, load, normalizeMyHolesForPersist, t]);
+
+  const highlight = <Text style={styles.onboardingHighlight} />;
 
   if (loading || !round) {
     return (
@@ -440,28 +447,18 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       >
         <View style={styles.onboardingOverlay}>
           <View style={styles.onboardingCard}>
-            <Text style={styles.onboardingTitle}>스코어 입력 안내</Text>
-            <Text style={styles.onboardingText}>
-              1) 먼저 홀 번호를 고른 뒤 <Text style={styles.onboardingHighlight}>SCORE</Text>, <Text style={styles.onboardingHighlight}>PUTT</Text>를 입력하세요.
-            </Text>
-            <Text style={styles.onboardingText}>
-              - <Text style={styles.onboardingHighlight}>SCORE</Text>는 <Text style={styles.onboardingHighlight}>언더파/오버파</Text> 기준 숫자입니다 (예: -1, 0, +2).
-            </Text>
-            <Text style={styles.onboardingText}>
-              2) <Text style={styles.onboardingHighlight}>Fairway/Rough/Penalty/OB</Text>를 체크한 뒤 <Text style={styles.onboardingHighlight}>`n홀 저장`</Text>을 눌러주세요.
-            </Text>
-            <Text style={styles.onboardingText}>
-              - 체크한 값은 <Text style={styles.onboardingHighlight}>페어웨이 안착율 계산</Text>과 <Text style={styles.onboardingHighlight}>OECD 적용</Text>에 사용됩니다.
-            </Text>
-            <Text style={styles.onboardingText}>
-              3) 18홀 저장이 끝나면 <Text style={styles.onboardingHighlight}>`스코어 확정`</Text>을 눌러 마무리하세요.
-            </Text>
+            <Text style={styles.onboardingTitle}>{t('roundDetail.onboardingTitle')}</Text>
+            {(['step1', 'step1Note', 'step2', 'step2Note', 'step3'] as const).map((step) => (
+              <Text key={step} style={styles.onboardingText}>
+                <Trans i18nKey={`roundDetail.onboarding.${step}`} components={{ h: highlight }} />
+              </Text>
+            ))}
             <TouchableOpacity
               style={styles.onboardingButton}
               onPress={handleCloseOnboarding}
               activeOpacity={0.85}
             >
-              <Text style={styles.onboardingButtonText}>확인</Text>
+              <Text style={styles.onboardingButtonText}>{t('common.confirm')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -531,7 +528,9 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                 activeOpacity={0.7}
               >
                 <Text style={styles.holeInfoCourseHint} numberOfLines={2}>
-                  (탭하여 {viewNine === 'front' ? '후반' : '전반'} 코스로 전환)
+                  {viewNine === 'front'
+                    ? t('roundDetail.switchToBack')
+                    : t('roundDetail.switchToFront')}
                 </Text>
               </TouchableOpacity>
             ) : (
@@ -544,7 +543,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                 activeOpacity={0.8}
               >
                 <Ionicons name="open-outline" size={14} color="#0a0" />
-                <Text style={styles.courseViewButtonText}>코스 뷰</Text>
+                <Text style={styles.courseViewButtonText}>{t('roundDetail.courseView')}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -638,7 +637,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           {isScoreConfirmed ? (
             <View style={styles.confirmBadge}>
               <Ionicons name="checkmark-circle" size={18} color="#0a0" />
-              <Text style={styles.confirmBadgeText}>스코어 확정됨 (수정 불가)</Text>
+              <Text style={styles.confirmBadgeText}>{t('roundDetail.confirmedBadge')}</Text>
             </View>
           ) : (
             <>
@@ -650,7 +649,9 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                   activeOpacity={0.8}
                 >
                   <Text style={styles.saveHoleButtonText}>
-                    {savingHole ? '저장 중...' : `${currentHoleNo}홀 저장`}
+                    {savingHole
+                      ? t('roundDetail.saving')
+                      : t('roundDetail.saveHole', { hole: currentHoleNo })}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -663,12 +664,12 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                   activeOpacity={0.8}
                 >
                   <Text style={styles.confirmButtonText}>
-                    {confirming ? '확정 중...' : '스코어 확정'}
+                    {confirming ? t('roundDetail.confirming') : t('roundDetail.confirmScore')}
                   </Text>
                 </TouchableOpacity>
               </View>
               {!all18HolesSaved && (
-                <Text style={styles.confirmHint}>18홀 모두 저장한 후 확정할 수 있습니다.</Text>
+                <Text style={styles.confirmHint}>{t('roundDetail.confirmHint')}</Text>
               )}
             </>
           )}

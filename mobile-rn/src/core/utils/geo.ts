@@ -1,3 +1,5 @@
+import i18n from '../../i18n';
+
 /** 두 GPS 좌표 간 직선 거리 (미터) */
 export function haversineDistanceMeters(
   lat1: number,
@@ -22,7 +24,7 @@ export function formatDistanceMeters(meters: number): string {
 }
 
 export function formatAccuracyMeters(accuracy: number | null | undefined): string {
-  if (accuracy == null || !Number.isFinite(accuracy)) return '정확도 알 수 없음';
+  if (accuracy == null || !Number.isFinite(accuracy)) return i18n.t('location.accuracyUnknown');
   return `±${Math.round(accuracy)}m`;
 }
 

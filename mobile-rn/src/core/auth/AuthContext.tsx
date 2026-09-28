@@ -4,6 +4,7 @@ import firestore from '@react-native-firebase/firestore';
 import { authService, configureGoogleSignIn } from './authService';
 import type { UserProfile } from '../types/userProfile';
 import { userProfileFromMap } from '../types/userProfile';
+import i18n from '../../i18n';
 
 type AuthState = {
   user: FirebaseAuthTypes.User | null;
@@ -32,7 +33,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const USERS_COLLECTION = 'users';
 const SUSPENDED_STATUS = 'SUSPENDED';
-const SUSPENDED_MESSAGE = '정지된 계정입니다. 관리자에게 문의해 주세요.';
+const suspendedMessage = (): string => i18n.t('auth.suspended');
 
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       if (firebaseUser) {
         const { suspended } = await loadProfile(firebaseUser.uid);
         if (suspended) {
-          setError(SUSPENDED_MESSAGE);
+          setError(suspendedMessage());
           await authService.signOut();
           setUser(null);
           setProfile(null);
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
         await authService.signOut();
         setUser(null);
         setProfile(null);
-        throw new Error(SUSPENDED_MESSAGE);
+        throw new Error(suspendedMessage());
       }
     }
   }, [loadProfile]);
@@ -117,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
           await authService.signOut();
           setUser(null);
           setProfile(null);
-          throw new Error(SUSPENDED_MESSAGE);
+          throw new Error(suspendedMessage());
         }
       }
     },
@@ -133,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
         await authService.signOut();
         setUser(null);
         setProfile(null);
-        throw new Error(SUSPENDED_MESSAGE);
+        throw new Error(suspendedMessage());
       }
     }
   }, [loadProfile]);
@@ -147,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
         await authService.signOut();
         setUser(null);
         setProfile(null);
-        throw new Error(SUSPENDED_MESSAGE);
+        throw new Error(suspendedMessage());
       }
     }
   }, [loadProfile]);
@@ -165,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     if (user?.uid) {
       const { suspended } = await loadProfile(user.uid);
       if (suspended) {
-        setError(SUSPENDED_MESSAGE);
+        setError(suspendedMessage());
         await authService.signOut();
         setUser(null);
         setProfile(null);

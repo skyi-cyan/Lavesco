@@ -3,12 +3,12 @@
  * Firestore의 region 값이 권역 id 또는 아래 키워드에 포함되면 해당 그룹으로 매칭
  */
 export const REGION_GROUPS = [
-  { id: '수도권', label: '수도권', keywords: ['수도권', '서울', '경기', '인천'] },
-  { id: '강원', label: '강원', keywords: ['강원'] },
-  { id: '충청', label: '충청', keywords: ['충청', '충북', '충남', '대전', '세종'] },
-  { id: '경상', label: '경상', keywords: ['경상', '경북', '경남', '대구', '부산', '울산'] },
-  { id: '제주', label: '제주', keywords: ['제주'] },
-  { id: '전라', label: '전라', keywords: ['전라', '전북', '전남', '광주'] },
+  { id: '수도권', labelKey: 'capital', keywords: ['수도권', '서울', '경기', '인천'] },
+  { id: '강원', labelKey: 'gangwon', keywords: ['강원'] },
+  { id: '충청', labelKey: 'chungcheong', keywords: ['충청', '충북', '충남', '대전', '세종'] },
+  { id: '경상', labelKey: 'gyeongsang', keywords: ['경상', '경북', '경남', '대구', '부산', '울산'] },
+  { id: '제주', labelKey: 'jeju', keywords: ['제주'] },
+  { id: '전라', labelKey: 'jeolla', keywords: ['전라', '전북', '전남', '광주'] },
 ] as const;
 
 export type RegionGroupId = (typeof REGION_GROUPS)[number]['id'];
