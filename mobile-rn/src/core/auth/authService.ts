@@ -203,7 +203,7 @@ async function ensureUserProfile(
   displayName?: string | null
 ): Promise<void> {
   const doc = await firestore().collection(USERS_COLLECTION).doc(user.uid).get();
-  if (!doc.exists) {
+  if (!doc.exists()) {
     await createUserProfile(user, { provider, displayName });
   }
 }

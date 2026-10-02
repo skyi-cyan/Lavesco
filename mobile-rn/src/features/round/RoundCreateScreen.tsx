@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,13 @@ import { useAuth } from '../../core/auth/AuthContext';
 import { TEE_TIME_OPTIONS, formatTeeTime } from '../../core/constants/teeTimes';
 import { fetchGolfCourses } from '../../core/services/courseService';
 import { fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
-import { createRound } from '../../core/services/roundService';
+import {
+  createRound,
+  fetchRound,
+  fetchRoundParticipants,
+  invalidateRoundCaches,
+  updateRound,
+} from '../../core/services/roundService';
 import { formatFirestoreUserMessage } from '../../core/utils/firestoreRetry';
 import type { GolfCourse } from '../../core/types/course';
 import type { GolfCourseCourse } from '../../core/types/course';
@@ -46,7 +52,18 @@ function formatScheduledDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
+type CourseSnapshot = {
+  golfCourseId: string;
+  golfCourseName: string;
+  frontCourseId: string;
+  frontCourseName: string;
+  backCourseId: string;
+  backCourseName: string;
+};
+
+export function RoundCreateScreen({ route, navigation }: Props): React.JSX.Element {
+  const editRoundId = route.params?.roundId;
+  const isEdit = !!editRoundId;
   const { t } = useTranslation();
   const { user, profile } = useAuth();
   const insets = useSafeAreaInsets();
@@ -70,6 +87,14 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [golfCourseSearchFocused, setGolfCourseSearchFocused] = useState(false);
+  const [editLoading, setEditLoading] = useState(isEdit);
+  /** 수정 모드: 스코어가 저장되어 골프장·코스 변경 불가 */
+  const [courseLocked, setCourseLocked] = useState(false);
+  /** 수정 모드: 확정한 참가자가 있어 수정 자체가 불가 */
+  const [editLocked, setEditLocked] = useState(false);
+  const initialCourseRef = useRef<CourseSnapshot | null>(null);
+  /** 수정 모드: 코스 목록 로드 후 선택해 둘 전·후반 코스 ID */
+  const pendingCourseIdsRef = useRef<{ front: string; back: string } | null>(null);
 
   const openDatePicker = () => {
     setPickYear(scheduledDate.getFullYear());
@@ -115,6 +140,74 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
   }, [loadGolfCourses]);
 
   useEffect(() => {
+    navigation.setOptions({ title: isEdit ? t('nav.roundEdit') : t('nav.roundCreate') });
+  }, [navigation, isEdit, t]);
+
+  useEffect(() => {
+    if (!editRoundId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        invalidateRoundCaches(editRoundId);
+        const [round, participants] = await Promise.all([
+          fetchRound(editRoundId),
+          fetchRoundParticipants(editRoundId),
+        ]);
+        if (cancelled) return;
+        if (!round) {
+          Alert.alert(t('roundCreate.updateFailed'), t('roundDetail.notFound'));
+          navigation.goBack();
+          return;
+        }
+        setRoundName(round.roundName ?? '');
+        setTeeTime(round.teeTime ?? '');
+        if (round.scheduledAt) setScheduledDate(round.scheduledAt);
+        setGolfCourseName(round.golfCourseName ?? '');
+        initialCourseRef.current = {
+          golfCourseId: round.golfCourseId ?? '',
+          golfCourseName: round.golfCourseName ?? '',
+          frontCourseId: round.frontCourseId ?? '',
+          frontCourseName: round.frontCourseName ?? '',
+          backCourseId: round.backCourseId ?? '',
+          backCourseName: round.backCourseName ?? '',
+        };
+        if (round.golfCourseId) {
+          pendingCourseIdsRef.current = {
+            front: round.frontCourseId ?? '',
+            back: round.backCourseId ?? '',
+          };
+          setSelectedGolfCourse({
+            id: round.golfCourseId,
+            name: round.golfCourseName ?? '',
+            region: '',
+            status: '',
+          });
+        } else {
+          setDirectInput(true);
+          setFrontCourseNameDirect(round.frontCourseName ?? '');
+          setBackCourseNameDirect(round.backCourseName ?? '');
+        }
+        setEditLocked(participants.some((p) => !!p.scoreConfirmedAt));
+        setCourseLocked(
+          round.status !== 'DRAFT' || participants.some((p) => (p.holesEntered ?? 0) > 0)
+        );
+      } catch (e) {
+        if (cancelled) return;
+        Alert.alert(
+          t('roundCreate.updateFailed'),
+          formatFirestoreUserMessage(e, t('roundCreate.updateFailedMessage'))
+        );
+        navigation.goBack();
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editRoundId, navigation, t]);
+
+  useEffect(() => {
     if (!selectedGolfCourse) {
       setCourses([]);
       setFrontCourse(null);
@@ -127,8 +220,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         const list = await fetchCoursesUnderGolfCourse(selectedGolfCourse.id);
         if (!cancelled) {
           setCourses(list);
-          setFrontCourse(null);
-          setBackCourse(null);
+          const pending = pendingCourseIdsRef.current;
+          pendingCourseIdsRef.current = null;
+          setFrontCourse(pending ? list.find((c) => c.id === pending.front) ?? null : null);
+          setBackCourse(pending ? list.find((c) => c.id === pending.back) ?? null : null);
         }
       } catch {
         if (!cancelled) setCourses([]);
@@ -218,10 +313,65 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
+  const handleUpdate = async () => {
+    if (!editRoundId || editLocked) return;
+    const gcName = golfCourseName.trim();
+    let course: CourseSnapshot | undefined;
+    if (!courseLocked) {
+      if (!gcName) {
+        Alert.alert(t('roundCreate.checkInput'), t('roundCreate.golfCourseRequired'));
+        return;
+      }
+      if (!directInput && selectedGolfCourse && !frontCourse) {
+        Alert.alert(t('roundCreate.checkInput'), t('roundCreate.frontCourseRequired'));
+        return;
+      }
+      const next: CourseSnapshot = {
+        golfCourseId: directInput ? '' : (selectedGolfCourse?.id ?? ''),
+        golfCourseName: gcName,
+        frontCourseId: directInput ? '' : (frontCourse?.id ?? ''),
+        frontCourseName: directInput ? frontCourseNameDirect.trim() : (frontCourse?.name ?? ''),
+        backCourseId: directInput ? '' : (backCourse?.id ?? ''),
+        backCourseName: directInput ? backCourseNameDirect.trim() : (backCourse?.name ?? ''),
+      };
+      const initial = initialCourseRef.current;
+      const changed =
+        !initial || (Object.keys(next) as (keyof CourseSnapshot)[]).some((k) => next[k] !== initial[k]);
+      if (changed) course = next;
+    }
+
+    setCreating(true);
+    try {
+      await updateRound(editRoundId, {
+        roundName: roundName.trim() || null,
+        teeTime: teeTime.trim() || null,
+        scheduledAt: scheduledDate,
+        course,
+      });
+      navigation.goBack();
+      Alert.alert(t('roundCreate.updatedTitle'), t('roundCreate.updatedMessage'));
+    } catch (e) {
+      Alert.alert(
+        t('roundCreate.updateFailed'),
+        formatFirestoreUserMessage(e, t('roundCreate.updateFailedMessage'))
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
   if (!user) {
     return (
       <View style={styles.centered}>
         <Text style={styles.subtitle}>{t('common.loginRequired')}</Text>
+      </View>
+    );
+  }
+
+  if (editLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0a0" />
       </View>
     );
   }
@@ -237,6 +387,15 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {isEdit && (editLocked || courseLocked) ? (
+          <View style={styles.lockNotice}>
+            <Ionicons name="lock-closed-outline" size={16} color="#8a6d00" />
+            <Text style={styles.lockNoticeText}>
+              {editLocked ? t('roundCreate.editLocked') : t('roundCreate.courseLocked')}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.label}>{t('roundCreate.roundName')}</Text>
           <TextInput
@@ -248,7 +407,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           />
         </View>
 
-        <View style={styles.section}>
+        <View
+          style={[styles.section, courseLocked && styles.sectionLocked]}
+          pointerEvents={courseLocked ? 'none' : 'auto'}
+        >
           <Text style={styles.label}>{t('roundCreate.golfCourse')}</Text>
           <View style={styles.golfCourseRow}>
             <View style={styles.inputTouchable}>
@@ -322,7 +484,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           ) : null}
         </View>
 
-        <View style={styles.section}>
+        <View
+          style={[styles.section, courseLocked && styles.sectionLocked]}
+          pointerEvents={courseLocked ? 'none' : 'auto'}
+        >
           <Text style={styles.label}>{t('roundCreate.frontCourse')}</Text>
           {directInput ? (
             <TextInput
@@ -346,7 +511,10 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
           )}
         </View>
 
-        <View style={styles.section}>
+        <View
+          style={[styles.section, courseLocked && styles.sectionLocked]}
+          pointerEvents={courseLocked ? 'none' : 'auto'}
+        >
           <Text style={styles.label}>{t('roundCreate.backCourse')}</Text>
           {directInput ? (
             <TextInput
@@ -401,13 +569,22 @@ export function RoundCreateScreen({ navigation }: Props): React.JSX.Element {
         </View>
 
         <TouchableOpacity
-          style={[styles.createButton, creating && styles.createButtonDisabled]}
-          onPress={handleCreate}
-          disabled={creating}
+          style={[
+            styles.createButton,
+            (creating || (isEdit && editLocked)) && styles.createButtonDisabled,
+          ]}
+          onPress={isEdit ? handleUpdate : handleCreate}
+          disabled={creating || (isEdit && editLocked)}
           activeOpacity={0.8}
         >
           <Text style={styles.createButtonText}>
-            {creating ? t('roundCreate.creating') : t('common.done')}
+            {isEdit
+              ? creating
+                ? t('roundCreate.updating')
+                : t('roundCreate.editSave')
+              : creating
+                ? t('roundCreate.creating')
+                : t('common.done')}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -625,6 +802,19 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   subtitle: { fontSize: 14, color: '#666' },
   section: { marginBottom: 20 },
+  sectionLocked: { opacity: 0.5 },
+  lockNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#fff8e1',
+    borderWidth: 1,
+    borderColor: '#ffe082',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  lockNoticeText: { flex: 1, fontSize: 13, color: '#8a6d00', lineHeight: 18 },
   label: {
     fontSize: 14,
     fontWeight: '600',

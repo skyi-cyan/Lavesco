@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const loadProfile = useCallback(async (uid: string): Promise<{ suspended: boolean }> => {
     try {
       const doc = await firestore().collection(USERS_COLLECTION).doc(uid).get();
-      if (!doc.exists) {
+      if (!doc.exists()) {
         setProfile(null);
         return { suspended: false };
       }

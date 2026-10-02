@@ -12,7 +12,8 @@ import {
 
 export type RoundStackParamList = {
   RoundList: undefined;
-  RoundCreate: undefined;
+  /** roundId가 있으면 라운드 정보 수정 모드 */
+  RoundCreate: { roundId?: string } | undefined;
   RoundJoin: undefined;
   RoundDetail: { roundId: string };
   CourseWebView: CourseWebViewParams;

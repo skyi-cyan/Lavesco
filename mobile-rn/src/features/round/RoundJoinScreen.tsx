@@ -224,6 +224,8 @@ export function RoundJoinScreen({ navigation }: Props): React.JSX.Element {
                   <Text style={styles.joinButtonText}>{t('roundJoin.viewRound')}</Text>
                 </TouchableOpacity>
               </>
+            ) : foundRound.status === 'FINISHED' ? (
+              <Text style={styles.alreadyJoinedText}>{t('roundJoin.finished')}</Text>
             ) : (
               <TouchableOpacity
                 style={[styles.joinButton, joining && styles.buttonDisabled]}

@@ -92,6 +92,8 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
   const [hasSavedScoreByRoundId, setHasSavedScoreByRoundId] = useState<
     Record<string, boolean>
   >({});
+  /** 라운드별 확정한 참가자 존재 여부 (취소 가능 판단) */
+  const [anyConfirmedByRoundId, setAnyConfirmedByRoundId] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [metaLoading, setMetaLoading] = useState(false);
@@ -128,7 +130,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
       setMetaLoading(true);
       try {
         const metas = await mapWithConcurrency(yearRounds, META_CONCURRENCY, (r) =>
-          fetchRoundListItemMeta(r.id, user.uid, r.status)
+          fetchRoundListItemMeta(r, user.uid)
         );
         if (seq !== metaSeqRef.current) return;
         setMyParticipantByRoundId((prev) => {
@@ -142,6 +144,13 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           const next = { ...prev };
           yearRounds.forEach((r, i) => {
             next[r.id] = metas[i].hasSavedScore;
+          });
+          return next;
+        });
+        setAnyConfirmedByRoundId((prev) => {
+          const next = { ...prev };
+          yearRounds.forEach((r, i) => {
+            next[r.id] = metas[i].anyConfirmed;
           });
           return next;
         });
@@ -237,8 +246,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         Alert.alert(t('roundList.cannotCancel'), t('roundList.hostOnly'));
         return;
       }
-      const myParticipant = myParticipantByRoundId[item.id] ?? null;
-      if (myParticipant?.scoreConfirmedAt) {
+      if (anyConfirmedByRoundId[item.id] || item.status === 'FINISHED') {
         Alert.alert(t('roundList.cannotCancel'), t('roundList.confirmedCannotCancel'));
         return;
       }
@@ -276,7 +284,7 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
         ]
       );
     },
-    [user?.uid, myParticipantByRoundId, load, t]
+    [user?.uid, anyConfirmedByRoundId, load, t]
   );
 
   const openYearModal = () => setYearModalVisible(true);
@@ -349,7 +357,11 @@ export function RoundListScreen({ navigation }: Props): React.JSX.Element {
           const myParticipant = myParticipantByRoundId[item.id] ?? null;
           const isConfirmed = !!myParticipant?.scoreConfirmedAt;
           const isHost = !!user?.uid && item.createdBy === user.uid;
-          const canCancel = isHost && !isConfirmed;
+          const canCancel =
+            isHost &&
+            !isConfirmed &&
+            !anyConfirmedByRoundId[item.id] &&
+            item.status !== 'FINISHED';
           const myTotal =
             myParticipant?.total != null && myParticipant.total > 0
               ? myParticipant.total

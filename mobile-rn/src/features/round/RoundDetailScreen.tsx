@@ -14,7 +14,17 @@ import firestore from '@react-native-firebase/firestore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { Trans, useTranslation } from 'react-i18next';
 import { useAuth } from '../../core/auth/AuthContext';
-import { fetchRound, fetchRoundParticipants, fetchRoundScore, saveRoundScore, confirmRoundScore } from '../../core/services/roundService';
+import {
+  saveRoundScore,
+  confirmRoundScore,
+  subscribeRound,
+  subscribeRoundParticipants,
+  subscribeRoundScores,
+  removeRoundParticipant,
+  finishRound,
+} from '../../core/services/roundService';
+import { formatFirestoreUserMessage } from '../../core/utils/firestoreRetry';
+import { ActionSheet, type ActionSheetItem } from '../shared/ActionSheet';
 import { grossStrokesForHole, playScoreSound } from '../../core/services/scoreSoundService';
 import { fetchHolesUnderCourse, fetchCoursesUnderGolfCourse } from '../../core/services/courseService';
 import type { Round } from '../../core/types/round';
@@ -60,8 +70,11 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   /** 현재 홀 입력 중인 값(미저장). 저장 버튼을 눌러야만 scoresByUid에 반영됨 */
   const [draftHoleScore, setDraftHoleScore] = useState<HoleScoreData>({ strokes: 0, putts: 0 });
   const [savingHole, setSavingHole] = useState(false);
-  /** 참가 직후 참가자 목록에 본인이 아직 안 보일 때 재로드 한 번만 시도 */
-  const loadRetriedRef = useRef(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [kickPickerVisible, setKickPickerVisible] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  /** 본인이 나가기를 눌렀을 때 "내보내짐" 안내를 띄우지 않기 위함 */
+  const leavingRef = useRef(false);
 
   const holeNumbers = viewNine === 'front' ? HOLE_NUMBERS_FRONT : HOLE_NUMBERS_BACK;
   const currentHoleNo = holeNumbers[currentHoleIndex];
@@ -106,104 +119,132 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           }
         : { strokes: holePar, putts: 0 };
     setDraftHoleScore(initial);
-  }, [currentHoleNo, user?.uid, scoresByUid, holePar]);
+    // 동반자 스코어가 바뀔 때 입력 중인 값이 초기화되지 않도록 내 현재 홀 값에만 반응
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentHoleNo, user?.uid, user?.uid ? scoresByUid[user.uid]?.[currentHoleNo] : undefined, holePar]);
 
-  const load = useCallback(async () => {
+  // 라운드 문서 실시간 구독: 개설자의 정보 수정·라운드 종료가 바로 반영됨
+  useEffect(() => {
     if (!roundId) return;
     setLoading(true);
-    try {
-      const [roundData, participantsList] = await Promise.all([
-        fetchRound(roundId),
-        fetchRoundParticipants(roundId),
-      ]);
-      setRound(roundData ?? null);
-      setParticipants(participantsList);
+    return subscribeRound(
+      roundId,
+      (data) => {
+        setRound(data);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+  }, [roundId]);
 
-      const scoreMap: Record<string, Record<string, HoleScoreData>> = {};
-      const uidsToFetch = participantsList.map((p) => p.uid);
-      await Promise.all(
-        uidsToFetch.map(async (uid) => {
-          try {
-            const holes = await fetchRoundScore(roundId, uid);
-            scoreMap[uid] = holes ?? {};
-          } catch {
-            scoreMap[uid] = {};
-          }
-        })
-      );
-      setScoresByUid(scoreMap);
-
-      if (
-        user?.uid &&
-        roundData &&
-        !participantsList.some((p) => p.uid === user.uid) &&
-        !loadRetriedRef.current
-      ) {
-        loadRetriedRef.current = true;
-        setTimeout(() => load(), 500);
-      }
-
-      if (roundData?.golfCourseId) {
-        try {
-          const courseList = await fetchCoursesUnderGolfCourse(roundData.golfCourseId);
-          const urlMap: Record<string, string> = {};
-          courseList.forEach((c) => {
-            if (c.courseUrl) urlMap[c.id] = c.courseUrl;
-          });
-          setCourseUrlById(urlMap);
-        } catch {
-          setCourseUrlById({});
-        }
-      } else {
-        setCourseUrlById({});
-      }
-
-      if (roundData?.golfCourseId && roundData?.frontCourseId) {
-        try {
-          const frontMap = await fetchHolesUnderCourse(
-            roundData.golfCourseId,
-            roundData.frontCourseId
-          );
-          const frontObj: Record<string, GolfCourseHoleInput> = {};
-          frontMap.forEach((v, k) => {
-            frontObj[k] = v;
-          });
-          setFrontHoleInfo(frontObj);
-        } catch {
-          setFrontHoleInfo({});
-        }
-      } else {
-        setFrontHoleInfo({});
-      }
-      if (roundData?.golfCourseId && roundData?.backCourseId) {
-        try {
-          const backMap = await fetchHolesUnderCourse(
-            roundData.golfCourseId,
-            roundData.backCourseId
-          );
-          const backObj: Record<string, GolfCourseHoleInput> = {};
-          backMap.forEach((v, k) => {
-            backObj[k] = v;
-          });
-          setBackHoleInfo(backObj);
-        } catch {
-          setBackHoleInfo({});
-        }
-      } else {
-        setBackHoleInfo({});
-      }
-    } catch {
-      setRound(null);
-      setParticipants([]);
-      setScoresByUid({});
-    } finally {
-      setLoading(false);
-    }
-  }, [roundId, user?.uid]);
+  const golfCourseId = round?.golfCourseId ?? '';
+  const frontCourseId = round?.frontCourseId ?? '';
+  const backCourseId = round?.backCourseId ?? '';
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    const toObj = (map: Map<string, GolfCourseHoleInput>) => {
+      const obj: Record<string, GolfCourseHoleInput> = {};
+      map.forEach((v, k) => {
+        obj[k] = v;
+      });
+      return obj;
+    };
+    (async () => {
+      if (!golfCourseId) {
+        setCourseUrlById({});
+        setFrontHoleInfo({});
+        setBackHoleInfo({});
+        return;
+      }
+      const [courseList, frontMap, backMap] = await Promise.all([
+        fetchCoursesUnderGolfCourse(golfCourseId).catch(() => []),
+        frontCourseId
+          ? fetchHolesUnderCourse(golfCourseId, frontCourseId).catch(() => null)
+          : Promise.resolve(null),
+        backCourseId
+          ? fetchHolesUnderCourse(golfCourseId, backCourseId).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      const urlMap: Record<string, string> = {};
+      courseList.forEach((c) => {
+        if (c.courseUrl) urlMap[c.id] = c.courseUrl;
+      });
+      setCourseUrlById(urlMap);
+      setFrontHoleInfo(frontMap ? toObj(frontMap) : {});
+      setBackHoleInfo(backMap ? toObj(backMap) : {});
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [golfCourseId, frontCourseId, backCourseId]);
+
+  // 참가자·스코어는 실시간 구독: 동반자가 저장·확정하면 바로 스코어카드에 반영
+  useEffect(() => {
+    if (!roundId || !user?.uid) return;
+    let unsubParticipants: (() => void) | null = null;
+    let unsubScores: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retried = false;
+
+    const subscribe = () => {
+      unsubParticipants = subscribeRoundParticipants(roundId, setParticipants, handleError);
+      unsubScores = subscribeRoundScores(
+        roundId,
+        (changes) => {
+          setScoresByUid((prev) => {
+            const next = { ...prev };
+            changes.forEach(({ uid, holes }) => {
+              if (holes) next[uid] = holes;
+              else delete next[uid];
+            });
+            return next;
+          });
+        },
+        handleError
+      );
+    };
+    const unsubscribeAll = () => {
+      unsubParticipants?.();
+      unsubScores?.();
+      unsubParticipants = null;
+      unsubScores = null;
+    };
+    // 참여 직후 권한 반영이 늦거나 일시적 오류일 때 한 번 재구독
+    function handleError() {
+      if (retried) return;
+      retried = true;
+      unsubscribeAll();
+      retryTimer = setTimeout(subscribe, 1000);
+    }
+
+    subscribe();
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      unsubscribeAll();
+    };
+  }, [roundId, user?.uid]);
+
+  const myParticipant = user?.uid ? participants.find((p) => p.uid === user.uid) : null;
+  const isScoreConfirmed = !!myParticipant?.scoreConfirmedAt;
+  const isFinished = round?.status === 'FINISHED';
+  const isHost = !!user?.uid && round?.createdBy === user.uid;
+  const isReadOnly = isScoreConfirmed || isFinished;
+
+  // 내보내졌거나 라운드가 취소되면 목록으로 이동
+  const wasParticipantRef = useRef(false);
+  useEffect(() => {
+    if (myParticipant) {
+      wasParticipantRef.current = true;
+      return;
+    }
+    if (!wasParticipantRef.current || leavingRef.current) return;
+    wasParticipantRef.current = false;
+    Alert.alert(t('common.notice'), t('roundDetail.removedFromRound'), [
+      { text: t('common.confirm'), onPress: () => navigation.popToTop() },
+    ]);
+  }, [myParticipant, navigation, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -244,22 +285,27 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <TouchableOpacity
-          onPress={() => setOnboardingVisible(true)}
-          style={styles.headerHelpButton}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="help-circle-outline" size={16} color="#1565c0" />
-          <Text style={styles.headerHelpButtonText}>{t('roundDetail.help')}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRightRow}>
+          <TouchableOpacity
+            onPress={() => setOnboardingVisible(true)}
+            style={styles.headerHelpButton}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="#1565c0" />
+            <Text style={styles.headerHelpButtonText}>{t('roundDetail.help')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setMenuVisible(true)}
+            style={styles.headerMenuButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel={t('roundDetail.menu')}
+          >
+            <Ionicons name="ellipsis-vertical" size={20} color="#333" />
+          </TouchableOpacity>
+        </View>
       ),
     });
-
-    const unsubscribe = navigation.addListener('focus', () => {
-      load();
-    });
-    return unsubscribe;
-  }, [navigation, load, t]);
+  }, [navigation, t]);
 
   /** 현재 홀 draft만 수정 (저장 버튼을 눌러야 반영됨) */
   const updateDraft = useCallback((updater: (prev: HoleScoreData) => HoleScoreData) => {
@@ -344,8 +390,11 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         setViewNine('back');
         setCurrentHoleIndex(0);
       }
-    } catch {
-      // 저장 실패 시 상태 유지
+    } catch (e) {
+      Alert.alert(
+        t('roundDetail.saveFailed'),
+        formatFirestoreUserMessage(e, t('roundDetail.saveFailedMessage'))
+      );
     } finally {
       setSavingHole(false);
     }
@@ -360,6 +409,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     draftHoleScore,
     scoresByUid,
     getParForHoleNo,
+    t,
   ]);
 
   const getOutTotal = (uid: string): number => {
@@ -403,8 +453,13 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
   const displayName = (p: RoundParticipant) =>
     p.nickname || p.uid.slice(0, 6) || '-';
 
-  const myParticipant = user?.uid ? participants.find((p) => p.uid === user.uid) : null;
-  const isScoreConfirmed = !!myParticipant?.scoreConfirmedAt;
+  /** 스코어카드 순서: 본인 → 개설자 → 나머지(이름순) */
+  const orderedParticipants = [...participants].sort((a, b) => {
+    const rank = (p: RoundParticipant) =>
+      p.uid === user?.uid ? 0 : p.uid === round?.createdBy ? 1 : 2;
+    const diff = rank(a) - rank(b);
+    return diff !== 0 ? diff : displayName(a).localeCompare(displayName(b));
+  });
 
   /** 18홀 모두 저장된 경우에만 스코어 확정 버튼 활성화 */
   const all18HolesSaved =
@@ -412,12 +467,11 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     ALL_HOLE_NUMBERS.every((no) => scoresByUid[user.uid]?.[no] !== undefined);
 
   const handleConfirmScore = useCallback(async () => {
-    if (!user?.uid || !roundId || confirming || isScoreConfirmed || !all18HolesSaved) return;
+    if (!user?.uid || !roundId || confirming || isReadOnly || !all18HolesSaved) return;
     const holes = normalizeMyHolesForPersist(scoresByUid[user.uid] ?? {});
     setConfirming(true);
     try {
       await confirmRoundScore(roundId, user.uid, holes);
-      await load();
       Alert.alert(t('roundDetail.confirmScore'), t('roundDetail.confirmed'));
     } catch (e) {
       const message = (e as Error)?.message ?? t('roundDetail.confirmFailedMessage');
@@ -425,14 +479,163 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
     } finally {
       setConfirming(false);
     }
-  }, [roundId, user?.uid, scoresByUid, confirming, isScoreConfirmed, all18HolesSaved, load, normalizeMyHolesForPersist, t]);
+  }, [roundId, user?.uid, scoresByUid, confirming, isReadOnly, all18HolesSaved, normalizeMyHolesForPersist, t]);
+
+  const anyConfirmed = participants.some((p) => !!p.scoreConfirmedAt);
+  const allConfirmed = participants.length > 0 && participants.every((p) => !!p.scoreConfirmedAt);
+  const kickableParticipants = participants.filter(
+    (p) => p.uid !== round?.createdBy && !p.scoreConfirmedAt
+  );
+
+  const runAction = useCallback(
+    async (action: () => Promise<void>, failTitle: string) => {
+      if (actionBusy) return;
+      setActionBusy(true);
+      try {
+        await action();
+      } catch (e) {
+        Alert.alert(failTitle, formatFirestoreUserMessage(e, t('common.tryAgainLater')));
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [actionBusy, t]
+  );
+
+  const handleFinishRound = useCallback(() => {
+    Alert.alert(t('roundDetail.finishTitle'), t('roundDetail.finishMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('roundDetail.finishAction'),
+        onPress: () =>
+          runAction(async () => {
+            await finishRound(roundId);
+            Alert.alert(t('roundDetail.finishTitle'), t('roundDetail.finishDone'));
+          }, t('roundDetail.finishFailed')),
+      },
+    ]);
+  }, [roundId, runAction, t]);
+
+  const handleKick = useCallback(
+    (target: RoundParticipant) => {
+      const name = target.nickname || target.uid.slice(0, 6);
+      Alert.alert(t('roundDetail.kickTitle'), t('roundDetail.kickMessage', { name }), [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('roundDetail.kickAction'),
+          style: 'destructive',
+          onPress: () =>
+            runAction(async () => {
+              await removeRoundParticipant(roundId, target.uid);
+              Alert.alert(t('roundDetail.kickTitle'), t('roundDetail.kickDone', { name }));
+            }, t('roundDetail.kickFailed')),
+        },
+      ]);
+    },
+    [roundId, runAction, t]
+  );
+
+  const handleLeave = useCallback(() => {
+    Alert.alert(t('roundDetail.leaveTitle'), t('roundDetail.leaveMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('roundDetail.leaveAction'),
+        style: 'destructive',
+        onPress: () =>
+          runAction(async () => {
+            leavingRef.current = true;
+            try {
+              await removeRoundParticipant(roundId);
+            } catch (e) {
+              leavingRef.current = false;
+              throw e;
+            }
+            navigation.popToTop();
+          }, t('roundDetail.leaveFailed')),
+      },
+    ]);
+  }, [roundId, runAction, navigation, t]);
+
+  const menuItems: ActionSheetItem[] = isHost
+    ? [
+        {
+          key: 'edit',
+          label: t('roundDetail.menuEdit'),
+          icon: 'create-outline',
+          disabledReason: isFinished
+            ? t('roundDetail.disabledFinished')
+            : anyConfirmed
+              ? t('roundDetail.editDisabledConfirmed')
+              : undefined,
+          onPress: () => navigation.navigate('RoundCreate', { roundId }),
+        },
+        {
+          key: 'kick',
+          label: t('roundDetail.menuKick'),
+          icon: 'person-remove-outline',
+          disabledReason: isFinished
+            ? t('roundDetail.disabledFinished')
+            : kickableParticipants.length === 0
+              ? t('roundDetail.kickDisabledNone')
+              : undefined,
+          onPress: () => setKickPickerVisible(true),
+        },
+        {
+          key: 'finish',
+          label: t('roundDetail.menuFinish'),
+          icon: 'flag-outline',
+          disabledReason: isFinished
+            ? t('roundDetail.disabledFinished')
+            : !allConfirmed
+              ? t('roundDetail.finishDisabledUnconfirmed')
+              : undefined,
+          onPress: handleFinishRound,
+        },
+      ]
+    : [
+        {
+          key: 'leave',
+          label: t('roundDetail.menuLeave'),
+          icon: 'exit-outline',
+          destructive: true,
+          disabledReason: isFinished
+            ? t('roundDetail.disabledFinished')
+            : isScoreConfirmed
+              ? t('roundDetail.leaveDisabledConfirmed')
+              : undefined,
+          onPress: handleLeave,
+        },
+      ];
+
+  const kickItems: ActionSheetItem[] = kickableParticipants.map((p) => ({
+    key: p.uid,
+    label: displayName(p),
+    icon: 'person-outline',
+    destructive: true,
+    onPress: () => handleKick(p),
+  }));
 
   const highlight = <Text style={styles.onboardingHighlight} />;
 
-  if (loading || !round) {
+  if (loading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#0a0" />
+      </View>
+    );
+  }
+
+  if (!round) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.notFoundText}>{t('roundDetail.notFound')}</Text>
+        <TouchableOpacity
+          style={styles.notFoundButton}
+          onPress={() => navigation.popToTop()}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.notFoundButtonText}>{t('roundDetail.backToList')}</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -448,7 +651,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         <View style={styles.onboardingOverlay}>
           <View style={styles.onboardingCard}>
             <Text style={styles.onboardingTitle}>{t('roundDetail.onboardingTitle')}</Text>
-            {(['step1', 'step1Note', 'step2', 'step2Note', 'step3'] as const).map((step) => (
+            {(['step1', 'step1Note', 'step2', 'step2Note', 'step3', 'step3Note'] as const).map((step) => (
               <Text key={step} style={styles.onboardingText}>
                 <Trans i18nKey={`roundDetail.onboarding.${step}`} components={{ h: highlight }} />
               </Text>
@@ -464,7 +667,21 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
         </View>
       </Modal>
 
+      <ActionSheet
+        visible={menuVisible}
+        title={t('roundDetail.menuTitle')}
+        items={menuItems}
+        onClose={() => setMenuVisible(false)}
+      />
+      <ActionSheet
+        visible={kickPickerVisible}
+        title={t('roundDetail.kickPickerTitle')}
+        items={kickItems}
+        onClose={() => setKickPickerVisible(false)}
+      />
+
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <View style={styles.holeCard}>
         {/* 홀 네비게이션 */}
         <View style={styles.holeNav}>
         <TouchableOpacity
@@ -549,39 +766,41 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
           </View>
         ) : null}
       </View>
+      </View>
 
+      <View style={styles.inputCard}>
       {/* SCORE: par 기준 0=par, -1=birdie, -2=eagle, +1=bogey … / PUTT (확정 시 읽기 전용) */}
       <View style={styles.scoreRow}>
         <View style={styles.scoreBlock}>
-          <Text style={styles.scoreBlockLabel}>SCORE (to Par)</Text>
+          <Text style={[styles.scoreBlockLabel, styles.scoreLabelColor]}>SCORE (to Par)</Text>
           <View style={styles.scoreControl}>
-            {!isScoreConfirmed && (
-              <TouchableOpacity style={styles.scoreBtn} onPress={() => setStrokes(-1)}>
-                <Ionicons name="remove" size={24} color="#333" />
+            {!isReadOnly && (
+              <TouchableOpacity style={[styles.scoreBtn, styles.scoreBtnGreen]} onPress={() => setStrokes(-1)}>
+                <Ionicons name="remove" size={24} color="#2e7d32" />
               </TouchableOpacity>
             )}
             <Text style={styles.scoreValue}>
               {toParDisplay(draftHoleScore.strokes ?? holePar)}
             </Text>
-            {!isScoreConfirmed && (
-              <TouchableOpacity style={styles.scoreBtn} onPress={() => setStrokes(1)}>
-                <Ionicons name="add" size={24} color="#333" />
+            {!isReadOnly && (
+              <TouchableOpacity style={[styles.scoreBtn, styles.scoreBtnGreen]} onPress={() => setStrokes(1)}>
+                <Ionicons name="add" size={24} color="#2e7d32" />
               </TouchableOpacity>
             )}
           </View>
         </View>
         <View style={styles.scoreBlock}>
-          <Text style={styles.scoreBlockLabel}>PUTT</Text>
+          <Text style={[styles.scoreBlockLabel, styles.puttLabelColor]}>PUTT</Text>
           <View style={styles.scoreControl}>
-            {!isScoreConfirmed && (
-              <TouchableOpacity style={styles.scoreBtn} onPress={() => setPutts(-1)}>
-                <Ionicons name="remove" size={24} color="#333" />
+            {!isReadOnly && (
+              <TouchableOpacity style={[styles.scoreBtn, styles.scoreBtnBlue]} onPress={() => setPutts(-1)}>
+                <Ionicons name="remove" size={24} color="#1565c0" />
               </TouchableOpacity>
             )}
             <Text style={styles.scoreValue}>{draftHoleScore.putts}</Text>
-            {!isScoreConfirmed && (
-              <TouchableOpacity style={styles.scoreBtn} onPress={() => setPutts(1)}>
-                <Ionicons name="add" size={24} color="#333" />
+            {!isReadOnly && (
+              <TouchableOpacity style={[styles.scoreBtn, styles.scoreBtnBlue]} onPress={() => setPutts(1)}>
+                <Ionicons name="add" size={24} color="#1565c0" />
               </TouchableOpacity>
             )}
           </View>
@@ -590,7 +809,7 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
 
       {/* Fairway, Rough, Penalty, OB (확정 시 읽기 전용) */}
       <View style={styles.checkRow}>
-        {isScoreConfirmed ? (
+        {isReadOnly ? (
           <>
             <View style={styles.checkItem}>
               <View style={[styles.checkbox, draftHoleScore.fairway && styles.checkboxChecked]} />
@@ -634,14 +853,19 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
       {/* 홀 저장 + 스코어 확정 (한 줄, 확정 시 뱃지만 표시) */}
       {user?.uid && (
         <View style={styles.confirmSection}>
-          {isScoreConfirmed ? (
+          {isReadOnly ? (
             <View style={styles.confirmBadge}>
-              <Ionicons name="checkmark-circle" size={18} color="#0a0" />
-              <Text style={styles.confirmBadgeText}>{t('roundDetail.confirmedBadge')}</Text>
+              <Ionicons
+                name={isFinished ? 'flag' : 'checkmark-circle'}
+                size={18}
+                color={isFinished ? '#1565c0' : '#0a0'}
+              />
+              <Text style={[styles.confirmBadgeText, isFinished && styles.finishedBadgeText]}>
+                {isFinished ? t('roundDetail.finishedBadge') : t('roundDetail.confirmedBadge')}
+              </Text>
             </View>
           ) : (
-            <>
-              <View style={styles.buttonRow}>
+            <View style={styles.buttonRow}>
                 <TouchableOpacity
                   style={[styles.saveHoleButton, savingHole && styles.saveHoleButtonDisabled]}
                   onPress={handleSaveCurrentHole}
@@ -667,14 +891,11 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
                     {confirming ? t('roundDetail.confirming') : t('roundDetail.confirmScore')}
                   </Text>
                 </TouchableOpacity>
-              </View>
-              {!all18HolesSaved && (
-                <Text style={styles.confirmHint}>{t('roundDetail.confirmHint')}</Text>
-              )}
-            </>
+            </View>
           )}
         </View>
       )}
+      </View>
 
       {/* Out / In / Total 합계 */}
       {user?.uid && (
@@ -769,15 +990,18 @@ export function RoundDetailScreen({ route, navigation }: Props): React.JSX.Eleme
             </View>
           </View>
         </View>
-        {participants.map((p) => {
+        {orderedParticipants.map((p) => {
           const outTotal = getOutTotal(p.uid);
           const inTotal = getInTotal(p.uid);
           const sumForView = viewNine === 'front' ? outTotal : inTotal;
           const parForView = viewNine === 'front' ? parOut : parIn;
+          const isMe = p.uid === user?.uid;
           return (
-            <View key={p.uid} style={styles.tableRow}>
+            <View key={p.uid} style={[styles.tableRow, isMe && styles.tableRowMe]}>
               <View style={[styles.tableCell, styles.tableCellName]}>
-                <Text style={styles.tableNameText} numberOfLines={1}>{displayName(p)}</Text>
+                <Text style={[styles.tableNameText, isMe && styles.tableNameTextMe]} numberOfLines={1}>
+                  {displayName(p)}
+                </Text>
               </View>
               {holeNumbers.map((no) => {
                 const saved = scoresByUid[p.uid]?.[no];
@@ -837,6 +1061,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   content: { padding: 16, paddingBottom: 32 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  notFoundText: { fontSize: 15, color: '#555', textAlign: 'center', paddingHorizontal: 24 },
+  notFoundButton: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#0a0',
+  },
+  notFoundButtonText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerMenuButton: { paddingHorizontal: 2, paddingVertical: 2 },
+  finishedBadgeText: { color: '#1565c0' },
   onboardingOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -895,6 +1131,31 @@ const styles = StyleSheet.create({
     color: '#1565c0',
     fontWeight: '700',
   },
+  holeCard: {
+    backgroundColor: '#f1f8e9',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c5e1a5',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
+    marginBottom: 12,
+  },
+  inputCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 14,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   holeNav: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -919,11 +1180,10 @@ const styles = StyleSheet.create({
   },
   holeCircleText: { fontSize: 20, fontWeight: '700', color: '#fff' },
   holeInfoBlock: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#2196f3',
-    paddingBottom: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#c5e1a5',
+    paddingTop: 8,
     paddingHorizontal: 4,
-    marginBottom: 2,
   },
   holeInfoRowTop: {
     flexDirection: 'row',
@@ -963,7 +1223,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#ecfdf5',
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#86efac',
     flexShrink: 0,
@@ -978,15 +1238,18 @@ const styles = StyleSheet.create({
   scoreRow: {
     flexDirection: 'row',
     gap: 24,
-    marginTop: 14,
     marginBottom: 16,
   },
   scoreBlock: { flex: 1, alignItems: 'center' },
-  scoreBlockLabel: { fontSize: 12, fontWeight: '600', color: '#666', marginBottom: 8 },
+  scoreBlockLabel: { fontSize: 13, fontWeight: '700', color: '#666', marginBottom: 8, letterSpacing: 0.3 },
+  scoreLabelColor: { color: '#2e7d32' },
+  puttLabelColor: { color: '#1565c0' },
+  scoreBtnGreen: { borderColor: '#81c784', backgroundColor: '#f1f8e9' },
+  scoreBtnBlue: { borderColor: '#90caf9', backgroundColor: '#e3f2fd' },
   scoreControl: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 6,
   },
   scoreBtn: {
     width: 44,
@@ -998,7 +1261,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scoreValue: { fontSize: 28, fontWeight: '700', color: '#111', minWidth: 36, textAlign: 'center' },
+  scoreValue: { fontSize: 28, fontWeight: '700', color: '#111', minWidth: 44, textAlign: 'center' },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1051,7 +1314,7 @@ const styles = StyleSheet.create({
   },
   saveHoleButtonDisabled: { opacity: 0.6 },
   saveHoleButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  confirmSection: { marginBottom: 16 },
+  confirmSection: {},
   confirmButton: {
     flex: 1,
     backgroundColor: '#0a0',
@@ -1062,12 +1325,6 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: { opacity: 0.6 },
   confirmButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  confirmHint: {
-    marginTop: 8,
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'center',
-  },
   confirmBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1142,5 +1399,7 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
   tableNameText: { fontSize: 13, color: '#111' },
+  tableRowMe: { backgroundColor: '#fffde7' },
+  tableNameTextMe: { fontWeight: '700' },
   tableCellText: { fontSize: 13, color: '#333' },
 });

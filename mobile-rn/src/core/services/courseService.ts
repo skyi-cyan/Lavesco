@@ -58,7 +58,7 @@ export async function fetchGolfCourse(
     .collection(GOLF_COURSES_COLLECTION)
     .doc(id)
     .get(getOpts);
-  if (!docSnap.exists) return null;
+  if (!docSnap.exists()) return null;
   const data = docSnap.data();
   if (!data) return null;
   return {

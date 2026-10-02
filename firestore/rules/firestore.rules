@@ -21,6 +21,25 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/rounds/$(roundId)).data.status == 'FINISHED';
     }
 
+    function isScoreConfirmed(roundId, uid) {
+      return get(/databases/$(database)/documents/rounds/$(roundId)/participants/$(uid))
+        .data.get('scoreConfirmedAt', null) != null;
+    }
+
+    // 스코어 확정 후 본인이 갱신할 수 있는 참가자 필드 (통계 backfill·닉네임)
+    function participantPostConfirmKeys() {
+      return [
+        'nickname',
+        'totalPutts',
+        'girHitCount',
+        'girTotalCount',
+        'firHitCount',
+        'firTotalCount',
+        'statsVersion',
+        'updatedAt'
+      ];
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -104,23 +123,28 @@ service cloud.firestore {
         && request.resource.data.roundNumber is string
         && request.resource.data.roundNumber.size() == 6;
       
-      // HOST 전체 수정, 또는 참가자가 DRAFT → IN_PROGRESS 만
-      allow update: if isHost(roundId) || (
-        isParticipant(roundId)
+      // 라운드 정보 수정·종료·취소는 Cloud Functions(Admin SDK)에서만.
+      // 클라이언트는 참가자(HOST 포함)가 status를 IN_PROGRESS로 바꾸는 것만 허용 (이미 IN_PROGRESS여도 허용:
+      // 구버전 앱은 홀 저장 배치에 이 쓰기를 포함하므로 거부되면 스코어 저장 전체가 실패함)
+      allow update: if (isParticipant(roundId) || isHost(roundId))
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['status', 'updatedAt'])
-        && resource.data.status == 'DRAFT'
-        && request.resource.data.status == 'IN_PROGRESS'
-      );
+        && resource.data.status in ['DRAFT', 'IN_PROGRESS']
+        && request.resource.data.status == 'IN_PROGRESS';
       
-      allow delete: if isHost(roundId);
+      // 구버전 앱의 클라이언트 취소 호환용 (현재 앱은 cancelRound 함수 사용)
+      allow delete: if isHost(roundId) && resource.data.status != 'FINISHED';
       
       match /scores/{uid} {
         allow read: if request.auth.uid == uid
           || isParticipant(roundId)
           || isHost(roundId)
           || hasAdminClaim();
-        allow write: if request.auth.uid == uid && !isFinished(roundId);
+        // 본인 스코어만, 참가 중이고 확정 전이며 라운드가 종료되지 않았을 때
+        allow write: if request.auth.uid == uid
+          && isParticipant(roundId)
+          && !isScoreConfirmed(roundId, uid)
+          && !isFinished(roundId);
       }
       
       match /participants/{uid} {
@@ -129,10 +153,20 @@ service cloud.firestore {
           || isParticipant(roundId)
           || isHost(roundId)
           || hasAdminClaim();
-        // create는 본인만 (라운드 생성·참여 시 isHost get 의존 제거)
-        allow create: if request.auth != null && request.auth.uid == uid;
-        allow update: if request.auth.uid == uid || isHost(roundId);
-        allow delete: if isHost(roundId) || request.auth.uid == uid;
+        // 참여는 본인만, 종료된 라운드에는 참여 불가
+        allow create: if request.auth != null
+          && request.auth.uid == uid
+          && !isFinished(roundId);
+        // 본인만 수정. 확정 후에는 통계·닉네임 필드만, role은 변경 불가
+        allow update: if request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+          && (
+            resource.data.get('scoreConfirmedAt', null) == null
+            || request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(participantPostConfirmKeys())
+          );
+        // 나가기·내보내기는 removeParticipant 함수 사용. 구버전 앱의 클라이언트 취소 호환용으로 HOST만 허용
+        allow delete: if isHost(roundId) && !isFinished(roundId);
       }
     }
     
